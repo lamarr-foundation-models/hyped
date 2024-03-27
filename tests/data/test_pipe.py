@@ -8,8 +8,8 @@ from tests.data.processors.test_base import (
 )
 
 
-@pytest.fixture
-def sample_data_pipe():
+@pytest.fixture(params=["flat", "nested_1", "nested_2"])
+def sample_data_pipe(request):
     # create data processor configs
     c1 = ConstantDataProcessorConfig(name="A", value="1")
     c2 = ConstantDataProcessorConfig(name="B", value="2")
@@ -18,8 +18,18 @@ def sample_data_pipe():
     p1 = ConstantDataProcessor(c1)
     p2 = ConstantDataProcessor(c2)
     p3 = ConstantDataProcessor(c3)
+
     # create data pipe
-    return DataPipe([p1, p2, p3])
+    if request.param == "flat":
+        return DataPipe([p1, p2, p3])
+    if request.param == "nested_1":
+        return DataPipe([DataPipe([p1]), DataPipe([p2, p3])])
+    if request.param == "nested_2":
+        return DataPipe(
+            [DataPipe([DataPipe([p1])]), DataPipe([p2, DataPipe([p3])])]
+        )
+
+    raise ValueError(request.param)
 
 
 class TestDataPipe:

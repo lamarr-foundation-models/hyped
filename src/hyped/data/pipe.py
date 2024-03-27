@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import warnings
 from collections import deque
 from copy import deepcopy
@@ -25,14 +27,17 @@ class DataPipe(list):
         processors (list[BaseDataProcessor]): the initial pipe of processors
     """
 
-    def __init__(self, processors: list[BaseDataProcessor] = []) -> None:
+    def __init__(
+        self, processors: list[BaseDataProcessor, DataPipe] = []
+    ) -> None:
         # check types of processors
-        if not all(isinstance(p, BaseDataProcessor) for p in processors):
-            raise TypeError(
-                "All processors used in a data pipe must inherit from `%s`"
-                % BaseDataProcessor
-            )
-        # initialize pipe as list of processors
+        for p in processors:
+            if not isinstance(p, (BaseDataProcessor, DataPipe)):
+                raise TypeError(
+                    "All processors used in a data pipe must inherit from "
+                    "`%s`, got %s" % (BaseDataProcessor, p)
+                )
+        # initialize pipe as list of processors or data pipes
         list.__init__(self, processors)
 
         # save input features
@@ -88,6 +93,8 @@ class DataPipe(list):
         #       but does not handle the removal of features
         #       throughout the pipeline by for example a filter
         #       features processor
+        # TODO: fix this by removing all features that are not
+        #       in the output features
         features = datasets.Features()
         for p in self:
             features.update(p.new_features)
@@ -107,6 +114,7 @@ class DataPipe(list):
         examples: dict[str, list[Any]],
         index: list[int],
         rank: None | int = None,
+        return_index: bool = False,
     ) -> dict[str, list[Any]]:
         """Process a batch of examples
 
@@ -114,12 +122,20 @@ class DataPipe(list):
             examples (dict[str, list[Any]]): batch of examples to process
             index (list[int]): dataset indices of the examples
             rank (int): execution process rank
+            return_index (bool):
+                whether to return the source index for each output example
 
         Returns:
             out (dict[str, list[Any]]): processed examples
+            idx (list[int]):
+                the source index of each processed example, only returned
+                when `return_index` is set
         """
         iterable = self.iter_batch_process(
-            examples=examples, index=index, rank=rank
+            examples=examples,
+            index=index,
+            rank=rank,
+            return_index=return_index,
         )
         # return the last item of the iterable which corresponds
         # to the output of the last data processor
@@ -130,6 +146,7 @@ class DataPipe(list):
         examples: dict[str, list[Any]],
         index: list[int],
         rank: None | int = None,
+        return_index: bool = False,
     ) -> Iterable[dict[str, list[Any]]]:
         if rank is None:
             # try to get multiprocessing rank from pytorch worker info
@@ -149,7 +166,7 @@ class DataPipe(list):
                 examples, index, rank, return_index=True
             )
             # yield the output of the current data processor
-            yield examples
+            yield (examples, index) if return_index else examples
 
     def _batch_process_to_pyarrow(
         self,
