@@ -1,6 +1,7 @@
 # Project specific
 notebooks/
 
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -146,4 +147,6 @@ docs/source/api
 
 # explicitly unignore data directory
 !src/hyped/data
+!src/hyped/data/dist
 !tests/data
+!tests/data/dist

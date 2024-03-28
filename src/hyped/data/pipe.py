@@ -24,7 +24,8 @@ class DataPipe(list):
     sequence or pipe.
 
     Arguments:
-        processors (list[BaseDataProcessor]): the initial pipe of processors
+        processors (list[BaseDataProcessor | DataPipe]):
+            the initial pipe of processors
     """
 
     def __init__(
