@@ -2,7 +2,7 @@ from __future__ import annotations
 import ray
 import datasets
 from ray.actor import ActorHandle
-from queue import Queue
+from ray.util.queue import Queue
 from torch.utils.data import get_worker_info
 from multiprocessing.managers import BaseManager
 from typing import Any, Iterable
@@ -23,6 +23,22 @@ class RemoteDataPipe(DataPipe):
     def _self(self, attr_name: str) -> Any:
         return getattr(self, attr_name)
 
+    def _set_actors(
+        self, i: int, idle_actor_ids: Queue, actors: list[ActorHandle]
+    ) -> None:
+        """Set actors and idle actor ids queue in a distributed data
+        pipe at a specific index of the remote data pipe"""
+
+        # make sure the processor at the given index
+        # is a distributed data pipe
+        if not isinstance(self[i], DistributedDataPipe):
+            raise TypeError(
+                "Expected `DistributedDataPipe` instance at index "
+                "%i, got %s" % (i, self[i])
+            )
+        # set the queue and actors list
+        self[i]._set_actors(idle_actor_ids, actors)
+
 
 # TODO: remote data pipes currently do not support statistics
 #       processors, this requires the statistics to be send
@@ -40,7 +56,7 @@ class DistributedDataPipe(DataPipe):
         num_proc (None | int):
             number of distributed workers to spawn. By default this
             value is taken from the `num_proc` argument to the
-            `DistributedDataPipe.apply` function. However this can
+            `DistributedDataPipe.apply` function. However, this can
             be set explicitly to allow different degrees of
             parallelism for different components of the data pipe.
         **kwargs:
@@ -57,36 +73,75 @@ class DistributedDataPipe(DataPipe):
     ) -> None:
         super(DistributedDataPipe, self).__init__(processors)
 
-        self.num_proc = num_proc
         self._spawn_kwargs = kwargs
-
+        # keep track of all worker actors and which ones
+        # are currently idleing
         self._actors = []
         self._idle_actor_ids: Queue = None
+        # spawn all actors if number of processes is specified
+        if num_proc is not None:
+            self._spawn_actors(num_actors=num_proc)
 
-    def _spawn(self) -> ActorHandle:
-        return (
+    def _set_actors(
+        self, idle_actor_ids: Queue, actors: list[ActorHandle]
+    ) -> None:
+        """Set the idle actor ids queue and actors list"""
+        self._actors = actors
+        self._idle_actor_ids = idle_actor_ids
+
+    @property
+    def are_actors_ready(self) -> bool:
+        """Checks whether the worker actors are spawned"""
+        return (self._idle_actor_ids is not None) and (len(self._actors) > 0)
+
+    @property
+    def num_proc(self) -> int | None:
+        """Number of distributed workers/processes used.
+        Returns None if the actors are not ready."""
+        return len(self._actors) if self.are_actors_ready else None
+
+    def _spawn_nested_actors(self) -> None:
+        assert self.are_actors_ready
+
+        for i, p in enumerate(self):
+            if isinstance(p, DistributedDataPipe) and not p.are_actors_ready:
+                # spawn actors for data pipe
+                # note that this recursively calls the
+                # _spawn_nested_actors function
+                p._spawn_actors(num_actors=self.num_proc)
+                # update the actors list and idle queue
+                # in all spawned actors of the nested pipe
+                for a in self._actors:
+                    a._set_actors.remote(i, p._idle_actor_ids, p._actors)
+
+            elif isinstance(p, DataPipe) and not isinstance(
+                p, DistributedDataPipe
+            ):
+                # look for distributed data pipes
+                # nested in standard data pipes
+                for pp in p:
+                    if isinstance(pp, DistributedDataPipe):
+                        raise NotImplementedError()
+
+    def _spawn_actors(self, num_actors: int) -> None:
+        if self.are_actors_ready:
+            raise RuntimeError(
+                "Actors of `DistributedDataPipe` are already " "initialized"
+            )
+
+        self._idle_actor_ids = Queue(maxsize=num_actors)
+        # remote worker spawn function
+        spawn = lambda: (
             ray.remote(**self._spawn_kwargs)
             if len(self._spawn_kwargs) > 0
             else ray.remote
         )(RemoteDataPipe).remote(list(self))
-
-    def _spawn_actors(self, num_actors: int) -> None:
-        self._idle_actor_ids = Queue(maxsize=num_actors)
-        # spawn actors for self
+        # spawn all actors for the current
         for rank in range(num_actors):
-            self._actors.append(self._spawn())
+            self._actors.append(spawn())
             self._idle_actor_ids.put(rank)
-
-    def _kill_actors(self) -> None:
-        # all actors should be idleing
-        assert len(self._actors) == self._idle_actor_ids.qsize()
-        # kill all actors and empty out the idle actor queue
-        for actor in self._actors:
-            ray.kill(actor)
-            self._idle_actor_ids.get()
-        # delete queue
-        del self._idle_actor_ids
-        self._idle_actor_ids = None
+        # spawn actors for nested distributed data pipes
+        self._spawn_nested_actors()
 
     def _check_actor(self, actor: ActorHandle) -> None:
         """Check configuration of the given actor"""
@@ -157,6 +212,13 @@ class DistributedDataPipe(DataPipe):
                 when `return_index` is set
         """
 
+        if not self.are_actors_ready:
+            raise RuntimeError(
+                "Actors of `DistributedDataPipe` not initialized. "
+                "This occurs when a standard `DataPipe` instance "
+                "contains a `DistributedDataPipe`."
+            )
+
         # select and actor and overwrite the rank
         rank = self._idle_actor_ids.get()
         actor = self._actors[rank]
@@ -191,7 +253,6 @@ class DistributedDataPipe(DataPipe):
             | datasets.IterableDataset
             | datasets.IterableDatasetDict
         ),
-        num_proc: None | int = None,
         **kwargs,
     ) -> datasets.Dataset | datasets.DatasetDict:
         """Apply the data pipe to a dataset
@@ -206,35 +267,28 @@ class DistributedDataPipe(DataPipe):
             out (datasets.Dataset|datasets.DatasetDict): processed dataset(s)
         """
 
-        if isinstance(
-            data, (datasets.IterableDataset, datasets.IterableDatasetDict)
-        ):
-            raise NotImplementedError()
+        # get the number of processes specified
+        # in the arguments
+        num_proc = kwargs.pop("num_proc", None)
 
-        # check num process argument
+        # check the number of processes argument
         if (
-            (self.num_proc is not None)
+            self.are_actors_ready
             and (num_proc is not None)
-            and (self.num_proc != num_proc)
+            and (num_proc != self.num_proc)
         ):
             raise ValueError(
-                "Ambiguous value for `num_proc`. Please specify the"
-                "`num_proc` argument either as an argument to the"
-                "constructor or the `apply` function of the"
-                "`DistributedDataPipe`, but not both!"
+                "Got ambiguous values for `num_proc` argument. "
+                "Please provide the argument either in the "
+                "constructor or the `apply` function, but not both."
+                "Got %i != %i" % (self.num_proc, num_proc)
             )
 
-        num_proc = num_proc or self.num_proc or 1
-        # spawn actors
-        self._spawn_actors(num_actors=num_proc)
-        # apply the distributed data pipe to the dataset
-        # using no multiprocessing, the workload distribution to
-        # different  workers is handled through ray in the
-        # `batch_process` function
-        data = super(DistributedDataPipe, self).apply(
-            data, num_proc=None, **kwargs
-        )
-        # kill all actors
-        self._kill_actors()
+        elif not self.are_actors_ready:
+            # spawn remote actors
+            self._spawn_actors(
+                num_actors=num_proc if num_proc is not None else 1
+            )
+            assert self.are_actors_ready
 
-        return data
+        return super(DistributedDataPipe, self).apply(data, **kwargs)

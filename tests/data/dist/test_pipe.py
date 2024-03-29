@@ -20,6 +20,11 @@ class TestDistributedDataPipe(TestDataPipe):
     @pytest.fixture(
         params=[
             "flat",
+            "stacked",
+            "stacked-1-1-1",
+            "stacked-1-3-5",
+            "nested",
+            "nested-1-3",
         ]
     )
     def sample_data_pipe(self, request):
@@ -34,15 +39,48 @@ class TestDistributedDataPipe(TestDataPipe):
         # create data pipe
         if request.param == "flat":
             return DistributedDataPipe([p1, p2, p3])
+        if request.param == "stacked":
+            return DistributedDataPipe(
+                [
+                    DistributedDataPipe([p1]),
+                    DistributedDataPipe([p2]),
+                    DistributedDataPipe([p3]),
+                ]
+            )
+        if request.param == "stacked-1-1-1":
+            return DistributedDataPipe(
+                [
+                    DistributedDataPipe([p1], num_proc=1),
+                    DistributedDataPipe([p2], num_proc=1),
+                    DistributedDataPipe([p3], num_proc=1),
+                ]
+            )
+        if request.param == "stacked-1-3-5":
+            return DistributedDataPipe(
+                [
+                    DistributedDataPipe([p1], num_proc=1),
+                    DistributedDataPipe([p2], num_proc=3),
+                    DistributedDataPipe([p3], num_proc=5),
+                ]
+            )
+        if request.param == "nested":
+            return DistributedDataPipe(
+                [p1, DistributedDataPipe([p2, DistributedDataPipe([p3])])]
+            )
+        if request.param == "nested-1-3":
+            return DistributedDataPipe(
+                [
+                    p1,
+                    DistributedDataPipe(
+                        [p2, DistributedDataPipe([p3], num_proc=1)], num_proc=3
+                    ),
+                ]
+            )
 
-    @pytest.mark.skip(reason="distributed data pipe needs to be initialized")
-    def test_batch_processing(self):
-        pass
+        raise TypeError(request.param)
 
-    @pytest.mark.skip(reason="NotImplemented")
-    def test_apply_to_iterable_dataset_dict(self):
-        pass
-
-    @pytest.mark.skip(reason="NotImplemented")
-    def test_apply_to_iterable_dataset(self):
-        pass
+    def test_batch_processing(self, sample_data_pipe):
+        sample_data_pipe._spawn_actors(num_actors=1)
+        super(TestDistributedDataPipe, self).test_batch_processing(
+            sample_data_pipe
+        )
