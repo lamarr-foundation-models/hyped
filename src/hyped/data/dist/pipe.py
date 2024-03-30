@@ -16,6 +16,7 @@ from typing import Optional
 from datasets.arrow_dataset import (
     transmit_tasks,
     transmit_format,
+    NonExistentDatasetError,
     _concatenate_map_style_datasets,
 )
 from datasets.fingerprint import (
@@ -26,6 +27,7 @@ from datasets.fingerprint import (
     format_kwargs_for_fingerprint,
 )
 from datasets.utils import tqdm as hf_tqdm
+from itertools import compress
 
 
 def _reserve_all_idle_actors(pipe: DistributedDataPipe) -> list[int]:
@@ -94,11 +96,11 @@ def _map_dataset(
         else is_caching_enabled()
     )
 
-    # get all the idleing actors of the data pipe to use
+    # reserve all idleing actors of the pipe to be used
     actor_ids = _reserve_all_idle_actors(pipe)
-    actors = [pipe._actors[i] for i in actor_ids]
-    # number of processes/actors/shards to use
     num_proc = num_shards = len(actor_ids)
+    # collect the actors
+    actors = [pipe._actors[i] for i in actor_ids]
 
     if num_proc == 0:
         raise RuntimeError(
@@ -130,6 +132,10 @@ def _map_dataset(
         )
     else:
         validate_fingerprint(new_fingerprint)
+
+    # get cache file name
+    if self.cache_files and (cache_file_name is None):
+        cache_file_name = self._get_cache_file_path(new_fingerprint)
 
     def load_processed_shard_from_cache(shard_kwargs):
         """Load a processed shard from cache if it exists,
@@ -193,31 +199,40 @@ def _map_dataset(
         for rank in range(num_shards)
     ]
 
+    futures = []
+    update_queue = Queue()
+    transformed_shards = [None] * num_shards
+    # start all workers
+    for rank, actor, shard in zip(actor_ids, actors, shards):
+        cache_file_name = format_cache_file_name(cache_file_name, rank)
+        new_fingerprint = format_new_fingerprint(new_fingerprint, rank)
+
+        try:
+            transformed_shards[i] = load_processed_shard_from_cache(
+                dict(shard=shard, cache_file_name=cache_file_name)
+            )
+            # free actor
+            _free_actors(pipe, [rank])
+
+        except NonExistentDatasetError:
+            # start workload on actor
+            futures.append(
+                actor._map_single.remote(
+                    shard=shard,
+                    update_queue=update_queue,
+                    rank=rank,
+                    offset=sum(map(len, shards[:rank])),
+                    cache_file_name=cache_file_name,
+                    new_fingerprint=new_fingerprint,
+                    **dataset_kwargs,
+                )
+            )
+
     pbar_total = (
         len(self)
         if not drop_last_batch
         else (len(self) // num_shards // batch_size * num_shards * batch_size)
     )
-
-    # TODO: try to load shards from cache
-
-    futures = []
-    update_queue = Queue()
-    # start all workers
-    for rank, actor, shard in zip(actor_ids, actors, shards):
-        futures.append(
-            actor._map_single.remote(
-                shard=shard,
-                update_queue=update_queue,
-                rank=rank,
-                offset=sum(map(len, shards[:rank])),
-                **dataset_kwargs,
-                cache_file_name=format_cache_file_name(cache_file_name, rank),
-                new_fingerprint=format_new_fingerprint(new_fingerprint, rank),
-            )
-        )
-
-    transformed_shards = [None] * num_shards
 
     with hf_tqdm(
         unit=" examples",
@@ -233,6 +248,7 @@ def _map_dataset(
             if done:
                 shards_done += 1
                 transformed_shards[rank] = content
+                _free_actors(pipe, [rank])
             else:
                 pbar.update(content)
 
@@ -248,9 +264,8 @@ def _map_dataset(
     else:
         result._fingerprint = self._fingerprint
 
-    # free actors
-    ray.wait(futures, num_returns=len(futures))
-    _free_actors(pipe, actor_ids)
+    # make sure all workers are finished
+    ray.wait(futures, num_returns=len(futures), timeout=1)
 
     return result
 
