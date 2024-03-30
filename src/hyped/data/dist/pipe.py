@@ -9,265 +9,8 @@ from hyped.data.pipe import DataPipe
 from hyped.data.processors.base import BaseDataProcessor
 from hyped.utils.feature_checks import check_feature_equals
 
-
-import os
-from typing import Optional
-
-from datasets.arrow_dataset import (
-    transmit_tasks,
-    transmit_format,
-    NonExistentDatasetError,
-    _concatenate_map_style_datasets,
-)
-from datasets.fingerprint import (
-    is_caching_enabled,
-    update_fingerprint,
-    validate_fingerprint,
-    format_transform_for_fingerprint,
-    format_kwargs_for_fingerprint,
-)
-from datasets.utils import tqdm as hf_tqdm
-from itertools import compress
-
-
-def _reserve_all_idle_actors(pipe: DistributedDataPipe) -> list[int]:
-    # pipe actors not initialized
-    if not pipe.are_actors_ready:
-        return []
-    # collect all idleing actor ids from the queue
-    actor_ids = []
-    try:
-        while True:
-            actor_ids.append(pipe._idle_actor_ids.get_nowait())
-    except Empty:
-        pass
-
-    return actor_ids
-
-
-def _free_actors(pipe: DistributedDataPipe, actor_ids: list[int]) -> None:
-    # add all actors back to the idleing queue
-    for i in actor_ids:
-        pipe._idle_actor_ids.put(i)
-
-
-@transmit_tasks
-@transmit_format
-def _map_dataset(
-    self: datasets.Dataset,
-    pipe: DistributedDataPipe,
-    batched: bool = False,
-    batch_size: Optional[int] = 1000,
-    drop_last_batch: bool = False,
-    keep_in_memory: bool = False,
-    load_from_cache_file: Optional[bool] = None,
-    cache_file_name: Optional[str] = None,
-    writer_batch_size: Optional[int] = 1000,
-    disable_nullable: bool = False,
-    new_fingerprint: Optional[str] = None,
-    suffix_template: str = "_{rank:05d}_of_{num_proc:05d}",
-    desc: Optional[str] = None,
-) -> datasets.Dataset:
-    if keep_in_memory and cache_file_name is not None:
-        raise ValueError(
-            "Please use either `keep_in_memory` or "
-            "`cache_file_name` but not both."
-        )
-
-    # If the array is empty we do nothing (but we make sure to
-    # handle an empty indices mapping and remove the requested
-    # columns anyway)
-    if len(self) == 0:
-        if self._indices is not None:  # empty indices mapping
-            self = Dataset(
-                self.data.slice(0, 0),
-                info=self.info.copy(),
-                split=self.split,
-                fingerprint=new_fingerprint,
-            )
-        if remove_columns:
-            return self.remove_columns(remove_columns)
-        else:
-            return self
-
-    load_from_cache_file = (
-        load_from_cache_file
-        if load_from_cache_file is not None
-        else is_caching_enabled()
-    )
-
-    # reserve all idleing actors of the pipe to be used
-    actor_ids = _reserve_all_idle_actors(pipe)
-    num_proc = num_shards = len(actor_ids)
-    # collect the actors
-    actors = [pipe._actors[i] for i in actor_ids]
-
-    if num_proc == 0:
-        raise RuntimeError(
-            "No remote actors available for `DistributedDataPipe` " "instance"
-        )
-
-    dataset_kwargs = dict(
-        batch_size=batch_size,
-        drop_last_batch=drop_last_batch,
-        keep_in_memory=keep_in_memory,
-        writer_batch_size=writer_batch_size,
-        disable_nullable=disable_nullable,
-    )
-
-    if new_fingerprint is None:
-        # we create a unique hash from the function,
-        # current dataset file and the mapping args
-        transform = format_transform_for_fingerprint(
-            datasets.Dataset._map_single
-        )
-        kwargs_for_fingerprint = format_kwargs_for_fingerprint(
-            datasets.Dataset._map_single,
-            (),
-            dataset_kwargs | dict(shard=self, function=pipe),
-        )
-        kwargs_for_fingerprint["fingerprint_name"] = "new_fingerprint"
-        new_fingerprint = update_fingerprint(
-            self._fingerprint, transform, kwargs_for_fingerprint
-        )
-    else:
-        validate_fingerprint(new_fingerprint)
-
-    # get cache file name
-    if self.cache_files and (cache_file_name is None):
-        cache_file_name = self._get_cache_file_path(new_fingerprint)
-
-    def load_processed_shard_from_cache(shard_kwargs):
-        """Load a processed shard from cache if it exists,
-        otherwise throw an error."""
-        shard = shard_kwargs["shard"]
-        # Check if we've already cached this computation (indexed by a hash)
-        if shard_kwargs["cache_file_name"] is not None:
-            if load_from_cache_file and os.path.exists(
-                shard_kwargs["cache_file_name"]
-            ):
-                info = shard.info.copy()
-                info.features = features
-                info.task_templates = None
-                return Dataset.from_file(
-                    shard_kwargs["cache_file_name"],
-                    info=info,
-                    split=shard.split,
-                )
-        raise NonExistentDatasetError
-
-    def format_cache_file_name(
-        cache_file_name: Optional[str],
-        rank: Union[int, Literal["*"]],  # noqa: F722
-    ) -> Optional[str]:
-        if not cache_file_name:
-            return cache_file_name
-        sep = cache_file_name.rindex(".")
-        base_name, extension = cache_file_name[:sep], cache_file_name[sep:]
-        if isinstance(rank, int):
-            cache_file_name = (
-                base_name
-                + suffix_template.format(rank=rank, num_proc=num_proc)
-                + extension
-            )
-            logger.info(f"Process #{rank} will write at {cache_file_name}")
-        else:
-            cache_file_name = (
-                base_name
-                + suffix_template.replace("{rank:05d}", "{rank}").format(
-                    rank=rank, num_proc=num_proc
-                )
-                + extension
-            )
-        return cache_file_name
-
-    def format_new_fingerprint(new_fingerprint: str, rank: int) -> str:
-        new_fingerprint = new_fingerprint + suffix_template.format(
-            rank=rank, num_proc=num_proc
-        )
-        validate_fingerprint(new_fingerprint)
-        return new_fingerprint
-
-    # create one dataset shard for each worker
-    shards = [
-        self.shard(
-            num_shards=num_proc,
-            index=rank,
-            contiguous=True,
-            keep_in_memory=keep_in_memory,
-        )
-        for rank in range(num_shards)
-    ]
-
-    futures = []
-    update_queue = Queue()
-    transformed_shards = [None] * num_shards
-    # start all workers
-    for rank, actor, shard in zip(actor_ids, actors, shards):
-        cache_file_name = format_cache_file_name(cache_file_name, rank)
-        new_fingerprint = format_new_fingerprint(new_fingerprint, rank)
-
-        try:
-            transformed_shards[i] = load_processed_shard_from_cache(
-                dict(shard=shard, cache_file_name=cache_file_name)
-            )
-            # free actor
-            _free_actors(pipe, [rank])
-
-        except NonExistentDatasetError:
-            # start workload on actor
-            futures.append(
-                actor._map_single.remote(
-                    shard=shard,
-                    update_queue=update_queue,
-                    rank=rank,
-                    offset=sum(map(len, shards[:rank])),
-                    cache_file_name=cache_file_name,
-                    new_fingerprint=new_fingerprint,
-                    **dataset_kwargs,
-                )
-            )
-
-    pbar_total = (
-        len(self)
-        if not drop_last_batch
-        else (len(self) // num_shards // batch_size * num_shards * batch_size)
-    )
-
-    with hf_tqdm(
-        unit=" examples",
-        total=pbar_total,
-        desc=(desc or "Map") + f" (num_proc={num_proc})",
-    ) as pbar:
-        # collect all outputs
-        shards_done = 0
-        while shards_done < num_shards:
-            # get next value from update queue
-            rank, done, content = update_queue.get()
-
-            if done:
-                shards_done += 1
-                transformed_shards[rank] = content
-                _free_actors(pipe, [rank])
-            else:
-                pbar.update(content)
-
-    # concatenate all shards
-    result = _concatenate_map_style_datasets(transformed_shards)
-
-    # update fingerprint if the dataset changed
-    if any(
-        transformed_shard._fingerprint != shard._fingerprint
-        for transformed_shard, shard in zip(transformed_shards, shards)
-    ):
-        result._fingerprint = new_fingerprint
-    else:
-        result._fingerprint = self._fingerprint
-
-    # make sure all workers are finished
-    ray.wait(futures, num_returns=len(futures), timeout=1)
-
-    return result
+from .pool import ActorPool
+from .map import _map_dataset
 
 
 class RemoteDataPipe(DataPipe):
@@ -281,12 +24,7 @@ class RemoteDataPipe(DataPipe):
     def _self(self, attr_name: str) -> Any:
         return getattr(self, attr_name)
 
-    def _set_actors(
-        self, i: int, idle_actor_ids: Queue, actors: list[ActorHandle]
-    ) -> None:
-        """Set actors and idle actor ids queue in a distributed data
-        pipe at a specific index of the remote data pipe"""
-
+    def _set_pool(self, i: int, pool: ActorPool) -> None:
         # make sure the processor at the given index
         # is a distributed data pipe
         if not isinstance(self[i], DistributedDataPipe):
@@ -295,7 +33,7 @@ class RemoteDataPipe(DataPipe):
                 "%i, got %s" % (i, self[i])
             )
         # set the queue and actors list
-        self[i]._set_actors(idle_actor_ids, actors)
+        self[i]._set_pool(pool)
 
     def _map_single(
         self, shard: datasets.Dataset, update_queue: Queue, **kwargs
@@ -305,10 +43,13 @@ class RemoteDataPipe(DataPipe):
         kwargs["with_indices"] = True
         kwargs["with_rank"] = True
 
-        for content in datasets.Dataset._map_single(
-            shard=shard, function=self._batch_process_to_pyarrow, **kwargs
-        ):
-            update_queue.put(content)
+        try:
+            for content in datasets.Dataset._map_single(
+                shard=shard, function=self._batch_process_to_pyarrow, **kwargs
+            ):
+                update_queue.put(content)
+        except Exception as e:
+            update_queue.put((kwargs["rank"], False, e))
 
 
 # TODO: remote data pipes currently do not support statistics
@@ -345,74 +86,59 @@ class DistributedDataPipe(DataPipe):
         super(DistributedDataPipe, self).__init__(processors)
 
         self._spawn_kwargs = kwargs
-        # keep track of all worker actors and which ones
-        # are currently idleing
-        self._actors = []
-        self._idle_actor_ids: Queue = None
+        # pool of all worker actors
+        self._pool: None | ActorPool = None
         # spawn all actors if number of processes is specified
         if num_proc is not None:
-            self._spawn_actors(num_actors=num_proc)
+            self._spawn_pool(num_actors=num_proc)
 
-    def _set_actors(
-        self, idle_actor_ids: Queue, actors: list[ActorHandle]
-    ) -> None:
-        """Set the idle actor ids queue and actors list"""
-        self._actors = actors
-        self._idle_actor_ids = idle_actor_ids
+    def _set_pool(self, pool: ActorPool) -> None:
+        assert not self.is_pool_ready
+        self._pool = pool
 
-    @property
-    def are_actors_ready(self) -> bool:
-        """Checks whether the worker actors are spawned"""
-        return (self._idle_actor_ids is not None) and (len(self._actors) > 0)
-
-    @property
-    def num_proc(self) -> int | None:
-        """Number of distributed workers/processes used.
-        Returns None if the actors are not ready."""
-        return len(self._actors) if self.are_actors_ready else None
-
-    def _spawn_nested_actors(self) -> None:
-        assert self.are_actors_ready
-
-        for i, p in enumerate(self):
-            if isinstance(p, DistributedDataPipe) and not p.are_actors_ready:
-                # spawn actors for data pipe
-                # note that this recursively calls the
-                # _spawn_nested_actors function
-                p._spawn_actors(num_actors=self.num_proc)
-                # update the actors list and idle queue
-                # in all spawned actors of the nested pipe
-                for a in self._actors:
-                    a._set_actors.remote(i, p._idle_actor_ids, p._actors)
-
-            elif isinstance(p, DataPipe) and not isinstance(
-                p, DistributedDataPipe
-            ):
-                # look for distributed data pipes
-                # nested in standard data pipes
-                for pp in p:
-                    if isinstance(pp, DistributedDataPipe):
-                        raise NotImplementedError()
-
-    def _spawn_actors(self, num_actors: int) -> None:
-        if self.are_actors_ready:
-            raise RuntimeError(
-                "Actors of `DistributedDataPipe` are already " "initialized"
-            )
-
-        self._idle_actor_ids = Queue(maxsize=num_actors)
+    def _spawn_pool(self, num_actors: int) -> None:
         # remote worker spawn function
         spawn = lambda: (
             ray.remote(**self._spawn_kwargs)
             if len(self._spawn_kwargs) > 0
             else ray.remote
         )(RemoteDataPipe).remote(list(self))
-        # spawn all actors for the current
-        for rank in range(num_actors):
-            self._actors.append(spawn())
-            self._idle_actor_ids.put(rank)
-        # spawn actors for nested distributed data pipes
-        self._spawn_nested_actors()
+
+        # set actor pool for distributed data pipe
+        self._set_pool(ActorPool([spawn() for _ in range(num_actors)]))
+
+        # reserve all actors in the pool
+        with self._pool.reserve_all() as reserved_actors:
+            # spawn actor pool in nested data pipes
+            for i, p in enumerate(self):
+                if isinstance(p, DistributedDataPipe) and not p.is_pool_ready:
+                    # spawn the actor pool of the nested data pipe
+                    p._spawn_pool(num_actors=self.num_proc)
+                    # set the actor pool in the actors of the
+                    # nested data pipe
+                    reserved_actors.for_all_actors(
+                        lambda a: a._set_pool.remote(i, p._pool)
+                    )
+
+                elif isinstance(p, DataPipe) and not isinstance(
+                    p, DistributedDataPipe
+                ):
+                    # look for distributed data pipes
+                    # nested in standard data pipes
+                    for pp in p:
+                        if isinstance(pp, DistributedDataPipe):
+                            raise NotImplementedError()
+
+    @property
+    def is_pool_ready(self) -> bool:
+        """Checks whether the actor pool is ready"""
+        return self._pool is not None
+
+    @property
+    def num_proc(self) -> int | None:
+        """Number of distributed workers/processes used.
+        Returns None if the actors are not ready."""
+        return self._pool.num_actors if self.is_pool_ready else None
 
     def _check_actor(self, actor: ActorHandle) -> None:
         """Check configuration of the given actor"""
@@ -440,19 +166,35 @@ class DistributedDataPipe(DataPipe):
         Return:
             out_features (datasets.Features): output features
         """
+
         # prepare main process data pipe
         out_features = super(DistributedDataPipe, self).prepare(features)
         assert self.is_prepared
 
-        # prepare all actors
-        for actor_out_features in ray.get(
-            [actor.prepare.remote(features) for actor in self._actors]
-        ):
-            assert check_feature_equals(actor_out_features, out_features)
+        if not self.is_pool_ready:
+            raise RuntimeError(
+                "Actor pool not initialiued. Please make sure the "
+                "pool is ready before calling `prepare`."
+            )
 
-        # check actors
-        for actor in self._actors:
-            self._check_actor(actor)
+        with self._pool.reserve_all() as reserved_actors:
+            # make sure all actors are reserved for preparation
+            # TODO: prepare is called recursively from within actors
+            #       such that this check doesn't work for nested
+            #       distributed data pipes
+            # assert len(reserved_actors) == self.num_proc
+
+            # prepare all actors
+            for actor_out_features in ray.get(
+                reserved_actors.for_all_actors(
+                    lambda a: a.prepare.remote(features)
+                )
+            ):
+                assert check_feature_equals(actor_out_features, out_features)
+
+            # check actors
+            for actor in reserved_actors.actors:
+                self._check_actor(actor)
 
         return out_features
 
@@ -483,27 +225,23 @@ class DistributedDataPipe(DataPipe):
                 when `return_index` is set
         """
 
-        if not self.are_actors_ready:
+        if not self.is_pool_ready:
             raise RuntimeError(
                 "Actors of `DistributedDataPipe` not initialized. "
                 "This occurs when a standard `DataPipe` instance "
                 "contains a `DistributedDataPipe`."
             )
 
-        # select and actor and overwrite the rank
-        rank = self._idle_actor_ids.get()
-        actor = self._actors[rank]
-        # call function on actor and get output
-        output = ray.get(
-            actor.batch_process.remote(
-                examples=examples,
-                index=index,
-                rank=rank,
-                return_index=return_index,
+        with self._pool.reserve() as (rank, actor):
+            # call function on actor and get output
+            output = ray.get(
+                actor.batch_process.remote(
+                    examples=examples,
+                    index=index,
+                    rank=rank,
+                    return_index=return_index,
+                )
             )
-        )
-        # add the actor id back into the idle queue
-        self._idle_actor_ids.put(rank)
 
         return output
 
@@ -565,7 +303,8 @@ class DistributedDataPipe(DataPipe):
             data (Dataset|DatasetDict|IterableDataset|IterableDatasetDict):
                 source dataset(s)
             **kwargs (dict[str, Any]):
-                arguments forwarded to datasets `.map` function
+                arguments forwarded to the `map` function used
+                for the specific dataset type
 
         Returns:
             out (datasets.Dataset|datasets.DatasetDict): processed dataset(s)
@@ -575,9 +314,12 @@ class DistributedDataPipe(DataPipe):
         # in the arguments
         num_proc = kwargs.pop("num_proc", None)
 
+        # destroy the pool after exection
+        destroy_pool_after = not self.is_pool_ready
+
         # check the number of processes argument
         if (
-            self.are_actors_ready
+            self.is_pool_ready
             and (num_proc is not None)
             and (num_proc != self.num_proc)
         ):
@@ -588,11 +330,11 @@ class DistributedDataPipe(DataPipe):
                 "Got %i != %i" % (self.num_proc, num_proc)
             )
 
-        elif not self.are_actors_ready:
+        elif not self.is_pool_ready:
             # spawn remote actors
-            self._spawn_actors(
+            self._spawn_pool(
                 num_actors=num_proc if num_proc is not None else 1
             )
-            assert self.are_actors_ready
+            assert self.is_pool_ready
 
         return super(DistributedDataPipe, self).apply(data, **kwargs)
