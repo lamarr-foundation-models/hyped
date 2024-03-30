@@ -6,11 +6,11 @@ from tests.data.processors.test_base import (
     ConstantDataProcessor,
     ConstantDataProcessorConfig,
 )
-from tests.data.test_pipe import TestDataPipe
+from tests.data.test_pipe import TestDataPipe as _TestDataPipe
 import pytest
 
 
-class TestDistributedDataPipe(TestDataPipe):
+class TestDistributedDataPipe(_TestDataPipe):
     @pytest.fixture(scope="class", autouse=True)
     def initialize_ray(self):
         ray.init()

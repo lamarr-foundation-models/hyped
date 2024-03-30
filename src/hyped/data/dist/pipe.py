@@ -2,14 +2,257 @@ from __future__ import annotations
 import ray
 import datasets
 from ray.actor import ActorHandle
-from ray.util.queue import Queue
-from torch.utils.data import get_worker_info
-from multiprocessing.managers import BaseManager
+from ray.util.queue import Queue, Empty
 from typing import Any, Iterable
 
 from hyped.data.pipe import DataPipe
 from hyped.data.processors.base import BaseDataProcessor
 from hyped.utils.feature_checks import check_feature_equals
+
+
+import os
+from typing import Optional
+
+from datasets.arrow_dataset import (
+    transmit_tasks,
+    transmit_format,
+    _concatenate_map_style_datasets,
+)
+from datasets.fingerprint import (
+    is_caching_enabled,
+    update_fingerprint,
+    validate_fingerprint,
+    format_transform_for_fingerprint,
+    format_kwargs_for_fingerprint,
+)
+from datasets.utils import tqdm as hf_tqdm
+
+
+def _reserve_all_idle_actors(pipe: DistributedDataPipe) -> list[int]:
+    # pipe actors not initialized
+    if not pipe.are_actors_ready:
+        return []
+    # collect all idleing actor ids from the queue
+    actor_ids = []
+    try:
+        while True:
+            actor_ids.append(pipe._idle_actor_ids.get_nowait())
+    except Empty:
+        pass
+
+    return actor_ids
+
+
+def _free_actors(pipe: DistributedDataPipe, actor_ids: list[int]) -> None:
+    # add all actors back to the idleing queue
+    for i in actor_ids:
+        pipe._idle_actor_ids.put(i)
+
+
+@transmit_tasks
+@transmit_format
+def _map_dataset(
+    self: datasets.Dataset,
+    pipe: DistributedDataPipe,
+    batched: bool = False,
+    batch_size: Optional[int] = 1000,
+    drop_last_batch: bool = False,
+    keep_in_memory: bool = False,
+    load_from_cache_file: Optional[bool] = None,
+    cache_file_name: Optional[str] = None,
+    writer_batch_size: Optional[int] = 1000,
+    disable_nullable: bool = False,
+    new_fingerprint: Optional[str] = None,
+    suffix_template: str = "_{rank:05d}_of_{num_proc:05d}",
+    desc: Optional[str] = None,
+) -> datasets.Dataset:
+    if keep_in_memory and cache_file_name is not None:
+        raise ValueError(
+            "Please use either `keep_in_memory` or "
+            "`cache_file_name` but not both."
+        )
+
+    # If the array is empty we do nothing (but we make sure to
+    # handle an empty indices mapping and remove the requested
+    # columns anyway)
+    if len(self) == 0:
+        if self._indices is not None:  # empty indices mapping
+            self = Dataset(
+                self.data.slice(0, 0),
+                info=self.info.copy(),
+                split=self.split,
+                fingerprint=new_fingerprint,
+            )
+        if remove_columns:
+            return self.remove_columns(remove_columns)
+        else:
+            return self
+
+    load_from_cache_file = (
+        load_from_cache_file
+        if load_from_cache_file is not None
+        else is_caching_enabled()
+    )
+
+    # get all the idleing actors of the data pipe to use
+    actor_ids = _reserve_all_idle_actors(pipe)
+    actors = [pipe._actors[i] for i in actor_ids]
+    # number of processes/actors/shards to use
+    num_proc = num_shards = len(actor_ids)
+
+    if num_proc == 0:
+        raise RuntimeError(
+            "No remote actors available for `DistributedDataPipe` " "instance"
+        )
+
+    dataset_kwargs = dict(
+        batch_size=batch_size,
+        drop_last_batch=drop_last_batch,
+        keep_in_memory=keep_in_memory,
+        writer_batch_size=writer_batch_size,
+        disable_nullable=disable_nullable,
+    )
+
+    if new_fingerprint is None:
+        # we create a unique hash from the function,
+        # current dataset file and the mapping args
+        transform = format_transform_for_fingerprint(
+            datasets.Dataset._map_single
+        )
+        kwargs_for_fingerprint = format_kwargs_for_fingerprint(
+            datasets.Dataset._map_single,
+            (),
+            dataset_kwargs | dict(shard=self, function=pipe),
+        )
+        kwargs_for_fingerprint["fingerprint_name"] = "new_fingerprint"
+        new_fingerprint = update_fingerprint(
+            self._fingerprint, transform, kwargs_for_fingerprint
+        )
+    else:
+        validate_fingerprint(new_fingerprint)
+
+    def load_processed_shard_from_cache(shard_kwargs):
+        """Load a processed shard from cache if it exists,
+        otherwise throw an error."""
+        shard = shard_kwargs["shard"]
+        # Check if we've already cached this computation (indexed by a hash)
+        if shard_kwargs["cache_file_name"] is not None:
+            if load_from_cache_file and os.path.exists(
+                shard_kwargs["cache_file_name"]
+            ):
+                info = shard.info.copy()
+                info.features = features
+                info.task_templates = None
+                return Dataset.from_file(
+                    shard_kwargs["cache_file_name"],
+                    info=info,
+                    split=shard.split,
+                )
+        raise NonExistentDatasetError
+
+    def format_cache_file_name(
+        cache_file_name: Optional[str],
+        rank: Union[int, Literal["*"]],  # noqa: F722
+    ) -> Optional[str]:
+        if not cache_file_name:
+            return cache_file_name
+        sep = cache_file_name.rindex(".")
+        base_name, extension = cache_file_name[:sep], cache_file_name[sep:]
+        if isinstance(rank, int):
+            cache_file_name = (
+                base_name
+                + suffix_template.format(rank=rank, num_proc=num_proc)
+                + extension
+            )
+            logger.info(f"Process #{rank} will write at {cache_file_name}")
+        else:
+            cache_file_name = (
+                base_name
+                + suffix_template.replace("{rank:05d}", "{rank}").format(
+                    rank=rank, num_proc=num_proc
+                )
+                + extension
+            )
+        return cache_file_name
+
+    def format_new_fingerprint(new_fingerprint: str, rank: int) -> str:
+        new_fingerprint = new_fingerprint + suffix_template.format(
+            rank=rank, num_proc=num_proc
+        )
+        validate_fingerprint(new_fingerprint)
+        return new_fingerprint
+
+    # create one dataset shard for each worker
+    shards = [
+        self.shard(
+            num_shards=num_proc,
+            index=rank,
+            contiguous=True,
+            keep_in_memory=keep_in_memory,
+        )
+        for rank in range(num_shards)
+    ]
+
+    pbar_total = (
+        len(self)
+        if not drop_last_batch
+        else (len(self) // num_shards // batch_size * num_shards * batch_size)
+    )
+
+    # TODO: try to load shards from cache
+
+    futures = []
+    update_queue = Queue()
+    # start all workers
+    for rank, actor, shard in zip(actor_ids, actors, shards):
+        futures.append(
+            actor._map_single.remote(
+                shard=shard,
+                update_queue=update_queue,
+                rank=rank,
+                offset=sum(map(len, shards[:rank])),
+                **dataset_kwargs,
+                cache_file_name=format_cache_file_name(cache_file_name, rank),
+                new_fingerprint=format_new_fingerprint(new_fingerprint, rank),
+            )
+        )
+
+    transformed_shards = [None] * num_shards
+
+    with hf_tqdm(
+        unit=" examples",
+        total=pbar_total,
+        desc=(desc or "Map") + f" (num_proc={num_proc})",
+    ) as pbar:
+        # collect all outputs
+        shards_done = 0
+        while shards_done < num_shards:
+            # get next value from update queue
+            rank, done, content = update_queue.get()
+
+            if done:
+                shards_done += 1
+                transformed_shards[rank] = content
+            else:
+                pbar.update(content)
+
+    # concatenate all shards
+    result = _concatenate_map_style_datasets(transformed_shards)
+
+    # update fingerprint if the dataset changed
+    if any(
+        transformed_shard._fingerprint != shard._fingerprint
+        for transformed_shard, shard in zip(transformed_shards, shards)
+    ):
+        result._fingerprint = new_fingerprint
+    else:
+        result._fingerprint = self._fingerprint
+
+    # free actors
+    ray.wait(futures, num_returns=len(futures))
+    _free_actors(pipe, actor_ids)
+
+    return result
 
 
 class RemoteDataPipe(DataPipe):
@@ -38,6 +281,19 @@ class RemoteDataPipe(DataPipe):
             )
         # set the queue and actors list
         self[i]._set_actors(idle_actor_ids, actors)
+
+    def _map_single(
+        self, shard: datasets.Dataset, update_queue: Queue, **kwargs
+    ) -> None:
+        kwargs["batched"] = True
+        kwargs["features"] = self.out_features
+        kwargs["with_indices"] = True
+        kwargs["with_rank"] = True
+
+        for content in datasets.Dataset._map_single(
+            shard=shard, function=self._batch_process_to_pyarrow, **kwargs
+        ):
+            update_queue.put(content)
 
 
 # TODO: remote data pipes currently do not support statistics
@@ -245,6 +501,34 @@ class DistributedDataPipe(DataPipe):
     ) -> Iterable[dict[str, list[Any]]]:
         raise NotImplementedError()
 
+    def _map(
+        self,
+        data: (
+            datasets.Dataset
+            | datasets.DatasetDict
+            | datasets.IterableDataset
+            | datasets.IterableDatasetDict
+        ),
+        **kwargs,
+    ) -> (
+        datasets.Dataset
+        | datasets.DatasetDict
+        | datasets.IterableDataset
+        | datasets.IterableDatasetDict
+    ):
+        if isinstance(
+            data,
+            (
+                datasets.DatasetDict,
+                datasets.IterableDataset,
+                datasets.IterableDatasetDict,
+            ),
+        ):
+            raise NotImplementedError()
+
+        if isinstance(data, datasets.Dataset):
+            return _map_dataset(self=data, pipe=self, **kwargs)
+
     def apply(
         self,
         data: (
@@ -254,7 +538,12 @@ class DistributedDataPipe(DataPipe):
             | datasets.IterableDatasetDict
         ),
         **kwargs,
-    ) -> datasets.Dataset | datasets.DatasetDict:
+    ) -> (
+        datasets.Dataset
+        | datasets.DatasetDict
+        | datasets.IterableDataset
+        | datasets.IterableDatasetDict
+    ):
         """Apply the data pipe to a dataset
 
         Arguments:
