@@ -106,3 +106,11 @@ class TestDistributedDataPipe(_TestDataPipe):
         super(TestDistributedDataPipe, self).test_batch_processing(
             sample_data_pipe
         )
+
+    @pytest.mark.skip(reason="NotImplementedError")
+    def test_apply_to_iterable_dataset(self):
+        pass
+
+    @pytest.mark.skip(reason="NotImplementedError")
+    def test_apply_to_iterable_dataset_dict(self):
+        pass
