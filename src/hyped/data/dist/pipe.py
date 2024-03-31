@@ -9,17 +9,29 @@ from hyped.data.pipe import DataPipe
 from hyped.data.processors.base import BaseDataProcessor
 from hyped.utils.feature_checks import check_feature_equals
 
-from .pool import ActorPool
+import hyped.data.dist.pool
+from .pool import ActorPool, RemoteWorker
 from .map import _map_dataset
 
 
-class RemoteDataPipe(DataPipe):
+class RemoteDataPipe(DataPipe, RemoteWorker):
     """(Internal) Remote Data Pipe
 
     Class that is distributed internally by `DistributedDataPipe`.
     Provides helper functions for distributed setting on top of
     the standard `DataPipe` functionality.
+
+    Arguments:
+        processors (list[BaseDataProcessor | DataPipe]):
+            pipe of processors
+        rank (int): rank of the remote data pipe
     """
+
+    def __init__(
+        self, processors: list[BaseDataProcessor, DataPipe] = [], rank: int = 0
+    ) -> None:
+        RemoteWorker.__init__(self, rank)
+        DataPipe.__init__(self, processors)
 
     def _self(self, attr_name: str) -> Any:
         return getattr(self, attr_name)
@@ -110,6 +122,11 @@ class DistributedDataPipe(DataPipe):
             self._spawn_pool(num_actors=num_proc)
 
     def _set_pool(self, pool: ActorPool) -> None:
+        """Set the worker pool
+
+        Arguments:
+            pool (ActorPool): actor pool
+        """
         assert not self.is_pool_ready
         self._pool = pool
 
@@ -144,13 +161,13 @@ class DistributedDataPipe(DataPipe):
         nested_pools = _spawn_nested_pools(self)
 
         # remote worker spawn function
-        spawn = lambda: (
+        spawn = lambda rank: (
             ray.remote(**self._spawn_kwargs)
             if len(self._spawn_kwargs) > 0
             else ray.remote
-        )(RemoteDataPipe).remote(list(self))
+        )(RemoteDataPipe).remote(list(self), rank)
         # set actor pool for distributed data pipe
-        self._set_pool(ActorPool([spawn() for _ in range(num_actors)]))
+        self._set_pool(ActorPool([spawn(rank) for rank in range(num_actors)]))
 
         # reserve all actors in the pool
         with self._pool.reserve_all() as reserved_actors:
@@ -178,27 +195,40 @@ class DistributedDataPipe(DataPipe):
 
     @property
     def is_prepared(self) -> bool:
-        with self._pool.reserve_all() as actors:
-            # TODO: make sure that the full pool is reserved and
-            #       not just the actors that are currently idleing
+        """Check if the data pipe is prepared and ready for execution.
 
-            return (
-                super(DistributedDataPipe, self).is_prepared
-                and self.is_pool_ready
-                and all(
-                    ray.get(
-                        actors.for_all_actors(
-                            lambda a: a._self.remote("is_prepared")
-                        )
-                    )
+        This check includes the check that the data pipe is prepared,
+        the worker pool is initialized and ready for usage and all
+        workers in the pool are prepared.
+        """
+
+        is_prepared = (
+            super(DistributedDataPipe, self).is_prepared and self.is_pool_ready
+        )
+
+        if is_prepared and (
+            (hyped.data.dist.pool.rank is None)
+            or (hyped.data.dist.pool.rank == 0)
+        ):
+            # make sure all workers are prepared as well
+            is_prepared = is_prepared and all(
+                ray.get(
+                    [
+                        actor._self.remote("is_prepared")
+                        for actor in self._pool.actors.values()
+                    ]
                 )
             )
 
+        return is_prepared
+
     def _check_actor(self, actor: ActorHandle) -> None:
         """Check configuration of the given actor"""
-        assert self.is_prepared == ray.get(actor._self.remote("is_prepared"))
+        assert super(DistributedDataPipe, self).is_prepared == ray.get(
+            actor._self.remote("is_prepared")
+        )
 
-        if self.is_prepared:
+        if super(DistributedDataPipe, self).is_prepared:
             for feature_name in [
                 "in_features",
                 "new_features",
@@ -231,20 +261,24 @@ class DistributedDataPipe(DataPipe):
                 "pool is ready before calling `prepare`."
             )
 
-        with self._pool.reserve_all() as reserved_actors:
-            # make sure all actors are reserved for preparation
-            # TODO: prepare is called recursively from within actors
-            #       such that this check doesn't work for nested
-            #       distributed data pipes
-            # assert len(reserved_actors) == self.num_proc
+        # let only rank zero start the preparation
+        # of remote data pipes
+        if (hyped.data.dist.pool.rank is None) or (
+            hyped.data.dist.pool.rank == 0
+        ):
+            with self._pool.reserve_all() as reserved_actors:
+                # make sure all actors are reserved for preparation
+                assert len(reserved_actors) == self.num_proc
 
-            # prepare all actors
-            for actor_out_features in ray.get(
-                reserved_actors.for_all_actors(
-                    lambda a: a.prepare.remote(features)
-                )
-            ):
-                assert check_feature_equals(actor_out_features, out_features)
+                # prepare all actors
+                for actor_out_features in ray.get(
+                    reserved_actors.for_all_actors(
+                        lambda a: a.prepare.remote(features)
+                    )
+                ):
+                    assert check_feature_equals(
+                        actor_out_features, out_features
+                    )
 
             # check actors
             for actor in reserved_actors.actors:

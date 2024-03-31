@@ -5,8 +5,45 @@ from ray.util.queue import Queue, Empty
 from dataclasses import dataclass, field
 from typing import Callable, TypeVar
 
+from .utils import get_actor_type
 
 T = TypeVar("T")
+
+
+# global variable used communicate the worker rank
+# between objects
+rank: None | int = None
+
+
+@dataclass
+class RemoteWorker(object):
+    """Remote Worker Class
+
+    Base class of remote actor workers. Keeps track of the rank of
+    the remote worker.
+
+    Attributes:
+        rank (int): rank of the actor
+    """
+
+    rank: int
+
+    def get_rank(self) -> int:
+        """Get the rank of the worker
+
+        Returns:
+            rank (int): rank of the remote actor
+        """
+        return self.rank
+
+    def ping(self) -> None:
+        """Ping
+
+        Used to wait for this actor to be initialized.
+        Also sets the global rank variable.
+        """
+        global rank
+        rank = self.get_rank()
 
 
 @dataclass
@@ -77,11 +114,37 @@ class ActorPool(object):
     """
 
     def __init__(self, actors: list[ActorHandle]) -> None:
-        self.actors = actors
+        assert len(actors) > 0, "No actors provided"
+
+        # collect all actor types
+        actor_types = set(list(map(get_actor_type, actors)))
+
+        if len(actor_types) > 1:
+            raise RuntimeError(
+                "Expected all actors to be of the same type, got %s"
+                % actor_types
+            )
+
+        # unpack the actor types
+        (actor_type,) = actor_types
+
+        if not issubclass(actor_type, RemoteWorker):
+            raise TypeError(
+                "All actors used in an actor pool must inherit the "
+                "`RemoteWorker` type, got %s" % str(actor_type)
+            )
+
+        ranks = ray.get([a.get_rank.remote() for a in actors])
+        self.actors = dict(zip(ranks, actors))
         self.idle_ranks = Queue(maxsize=len(actors))
         # add all ranks
-        for rank in range(len(self.actors)):
+        for rank in ranks:
             self.idle_ranks.put(rank)
+
+        # ping all actors
+        ray.wait(
+            [actor.ping.remote() for actor in actors], num_returns=len(actors)
+        )
 
     @property
     def num_actors(self) -> int:
