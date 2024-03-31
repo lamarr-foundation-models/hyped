@@ -25,6 +25,7 @@ class TestDistributedDataPipe(_TestDataPipe):
             "stacked-1-3-5",
             "nested",
             "nested-1-3",
+            "nested-dist-and-non-dist",
         ]
     )
     def sample_data_pipe(self, request):
@@ -45,7 +46,7 @@ class TestDistributedDataPipe(_TestDataPipe):
                     DistributedDataPipe([p1]),
                     DistributedDataPipe([p2]),
                     DistributedDataPipe([p3]),
-                ]
+                ],
             )
         if request.param == "stacked-1-1-1":
             return DistributedDataPipe(
@@ -53,7 +54,7 @@ class TestDistributedDataPipe(_TestDataPipe):
                     DistributedDataPipe([p1], num_proc=1),
                     DistributedDataPipe([p2], num_proc=1),
                     DistributedDataPipe([p3], num_proc=1),
-                ]
+                ],
             )
         if request.param == "stacked-1-3-5":
             return DistributedDataPipe(
@@ -61,7 +62,7 @@ class TestDistributedDataPipe(_TestDataPipe):
                     DistributedDataPipe([p1], num_proc=1),
                     DistributedDataPipe([p2], num_proc=3),
                     DistributedDataPipe([p3], num_proc=5),
-                ]
+                ],
             )
         if request.param == "nested":
             return DistributedDataPipe(
@@ -76,11 +77,32 @@ class TestDistributedDataPipe(_TestDataPipe):
                     ),
                 ]
             )
+        if request.param == "nested-dist-and-non-dist":
+            return DistributedDataPipe(
+                [
+                    p1,
+                    DataPipe(
+                        [p2, DistributedDataPipe([p3])],
+                    ),
+                ]
+            )
 
         raise TypeError(request.param)
 
+    def test_preparation_logic(self, sample_data_pipe):
+        sample_data_pipe._spawn_pool(num_actors=1)
+        super(TestDistributedDataPipe, self).test_preparation_logic(
+            sample_data_pipe
+        )
+
+    def test_feature_management(self, sample_data_pipe):
+        sample_data_pipe._spawn_pool(num_actors=1)
+        super(TestDistributedDataPipe, self).test_feature_management(
+            sample_data_pipe
+        )
+
     def test_batch_processing(self, sample_data_pipe):
-        sample_data_pipe._spawn_actors(num_actors=1)
+        sample_data_pipe._spawn_pool(num_actors=1)
         super(TestDistributedDataPipe, self).test_batch_processing(
             sample_data_pipe
         )

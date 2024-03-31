@@ -124,21 +124,24 @@ class DistributedDataPipe(DataPipe):
             pool (ActorPool): actor pool of distributed data pipe
         """
 
-        nested_pools = {}
-        # spawn pool in nested data pipes
-        for i, p in enumerate(self):
-            if isinstance(p, DistributedDataPipe) and not p.is_pool_ready:
-                # spawn the actor pool of the nested data pipe
-                # use as many actors as the parent data pipe
-                nested_pools[i] = p._spawn_pool(num_actors=num_actors)
+        def _spawn_nested_pools(pipe: DataPipe) -> dict[int, ActorPool]:
+            nested_pools = {}
+            # spawn pool in nested data pipes
+            for i, p in enumerate(pipe):
+                if isinstance(p, DistributedDataPipe) and not p.is_pool_ready:
+                    # spawn the actor pool of the nested data pipe
+                    # use as many actors as the parent data pipe
+                    nested_pools[(i,)] = p._spawn_pool(num_actors=num_actors)
+                elif isinstance(p, DataPipe) and not isinstance(
+                    p, DistributedDataPipe
+                ):
+                    # look for distributed data pipes
+                    # nested in standard data pipes
+                    for nested_idx, pool in _spawn_nested_pools(p).items():
+                        nested_pools[(i,) + nested_idx] = pool
+            return nested_pools
 
-            elif isinstance(p, DataPipe) and not isinstance(
-                p, DistributedDataPipe
-            ):
-                # look for distributed data pipes
-                # nested in standard data pipes
-                if any(isinstance(x, DistributedDataPipe) for x in p):
-                    raise NotImplementedError()
+        nested_pools = _spawn_nested_pools(self)
 
         # remote worker spawn function
         spawn = lambda: (
@@ -152,10 +155,10 @@ class DistributedDataPipe(DataPipe):
         # reserve all actors in the pool
         with self._pool.reserve_all() as reserved_actors:
             # set the actor pools of nested pipes in remote actors
-            for i, pool in nested_pools.items():
+            for idx, pool in nested_pools.items():
                 ray.wait(
                     reserved_actors.for_all_actors(
-                        lambda a: a._set_pool.remote(i, p._pool)
+                        lambda a: a._set_pool.remote(idx, pool)
                     ),
                     num_returns=len(reserved_actors),
                 )
