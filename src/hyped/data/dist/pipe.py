@@ -24,16 +24,33 @@ class RemoteDataPipe(DataPipe):
     def _self(self, attr_name: str) -> Any:
         return getattr(self, attr_name)
 
-    def _set_pool(self, i: int, pool: ActorPool) -> None:
+    def _set_pool(self, idx: int | tuple[int], pool: ActorPool) -> None:
+        pipe = self._at_idx(idx)
         # make sure the processor at the given index
         # is a distributed data pipe
-        if not isinstance(self[i], DistributedDataPipe):
+        if not isinstance(pipe, DistributedDataPipe):
             raise TypeError(
                 "Expected `DistributedDataPipe` instance at index "
-                "%i, got %s" % (i, self[i])
+                "%s, got %s" % (str(idx), pipe)
             )
-        # set the queue and actors list
-        self[i]._set_pool(pool)
+        pipe._set_pool(pool)
+
+    def _at_idx(self, idx: int | tuple[int]) -> ActorPool:
+        idx = (idx,) if isinstance(idx, int) else idx
+
+        p = self
+
+        for j, i in enumerate(idx):
+            # make sure the processor at the given index
+            # is a distributed data pipe
+            if not isinstance(p, DataPipe):
+                raise TypeError(
+                    "Expected `DataPipe` instance at index "
+                    "%s, got %s" % (str(idx[:j]), p)
+                )
+            p = p[i]
+
+        return p
 
     def _map_single(
         self, shard: datasets.Dataset, update_queue: Queue, **kwargs
@@ -96,38 +113,54 @@ class DistributedDataPipe(DataPipe):
         assert not self.is_pool_ready
         self._pool = pool
 
-    def _spawn_pool(self, num_actors: int) -> None:
+    def _spawn_pool(self, num_actors: int) -> ActorPool:
+        """Spawn all remote actors of the distributed data pipe
+        including nested distributed data pipes.
+
+        Arguments:
+            num_actors (int): number of actors to spawn
+
+        Returns:
+            pool (ActorPool): actor pool of distributed data pipe
+        """
+
+        nested_pools = {}
+        # spawn pool in nested data pipes
+        for i, p in enumerate(self):
+            if isinstance(p, DistributedDataPipe) and not p.is_pool_ready:
+                # spawn the actor pool of the nested data pipe
+                # use as many actors as the parent data pipe
+                nested_pools[i] = p._spawn_pool(num_actors=num_actors)
+
+            elif isinstance(p, DataPipe) and not isinstance(
+                p, DistributedDataPipe
+            ):
+                # look for distributed data pipes
+                # nested in standard data pipes
+                if any(isinstance(x, DistributedDataPipe) for x in p):
+                    raise NotImplementedError()
+
         # remote worker spawn function
         spawn = lambda: (
             ray.remote(**self._spawn_kwargs)
             if len(self._spawn_kwargs) > 0
             else ray.remote
         )(RemoteDataPipe).remote(list(self))
-
         # set actor pool for distributed data pipe
         self._set_pool(ActorPool([spawn() for _ in range(num_actors)]))
 
         # reserve all actors in the pool
         with self._pool.reserve_all() as reserved_actors:
-            # spawn actor pool in nested data pipes
-            for i, p in enumerate(self):
-                if isinstance(p, DistributedDataPipe) and not p.is_pool_ready:
-                    # spawn the actor pool of the nested data pipe
-                    p._spawn_pool(num_actors=self.num_proc)
-                    # set the actor pool in the actors of the
-                    # nested data pipe
+            # set the actor pools of nested pipes in remote actors
+            for i, pool in nested_pools.items():
+                ray.wait(
                     reserved_actors.for_all_actors(
                         lambda a: a._set_pool.remote(i, p._pool)
-                    )
+                    ),
+                    num_returns=len(reserved_actors),
+                )
 
-                elif isinstance(p, DataPipe) and not isinstance(
-                    p, DistributedDataPipe
-                ):
-                    # look for distributed data pipes
-                    # nested in standard data pipes
-                    for pp in p:
-                        if isinstance(pp, DistributedDataPipe):
-                            raise NotImplementedError()
+        return self._pool
 
     @property
     def is_pool_ready(self) -> bool:
@@ -139,6 +172,24 @@ class DistributedDataPipe(DataPipe):
         """Number of distributed workers/processes used.
         Returns None if the actors are not ready."""
         return self._pool.num_actors if self.is_pool_ready else None
+
+    @property
+    def is_prepared(self) -> bool:
+        with self._pool.reserve_all() as actors:
+            # TODO: make sure that the full pool is reserved and
+            #       not just the actors that are currently idleing
+
+            return (
+                super(DistributedDataPipe, self).is_prepared
+                and self.is_pool_ready
+                and all(
+                    ray.get(
+                        actors.for_all_actors(
+                            lambda a: a._self.remote("is_prepared")
+                        )
+                    )
+                )
+            )
 
     def _check_actor(self, actor: ActorHandle) -> None:
         """Check configuration of the given actor"""
@@ -169,11 +220,11 @@ class DistributedDataPipe(DataPipe):
 
         # prepare main process data pipe
         out_features = super(DistributedDataPipe, self).prepare(features)
-        assert self.is_prepared
+        assert super(DistributedDataPipe, self).is_prepared
 
         if not self.is_pool_ready:
             raise RuntimeError(
-                "Actor pool not initialiued. Please make sure the "
+                "Actor pool not initialized. Please make sure the "
                 "pool is ready before calling `prepare`."
             )
 

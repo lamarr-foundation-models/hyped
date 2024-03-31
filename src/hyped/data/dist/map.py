@@ -209,17 +209,19 @@ def _map_dataset(
         transformed_shards = [None] * num_shards
         # start all workers
         for actor, shard in zip(actors, shards):
-            cache_file_name = format_cache_file_name(
+            formatted_cache_file_name = format_cache_file_name(
                 cache_file_name, actor.rank
             )
-            new_fingerprint = format_new_fingerprint(
+            formatted_new_fingerprint = format_new_fingerprint(
                 new_fingerprint, actor.rank
             )
 
             try:
                 idx = rank2idx[actor.rank]
                 transformed_shards[idx] = load_processed_shard_from_cache(
-                    dict(shard=shard, cache_file_name=cache_file_name)
+                    dict(
+                        shard=shard, cache_file_name=formatted_cache_file_name
+                    )
                 )
                 # free actor
                 actor.release()
@@ -232,8 +234,8 @@ def _map_dataset(
                         update_queue=update_queue,
                         rank=actor.rank,
                         offset=sum(map(len, shards[: actor.rank])),
-                        cache_file_name=cache_file_name,
-                        new_fingerprint=new_fingerprint,
+                        cache_file_name=formatted_cache_file_name,
+                        new_fingerprint=formatted_new_fingerprint,
                         **dataset_kwargs,
                     )
                 )
