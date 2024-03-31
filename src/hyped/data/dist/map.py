@@ -1,6 +1,6 @@
 import os
 import datasets
-from typing import Optional, Callable, TypeVar, Union, Literal
+from typing import Optional, Callable, TypeVar, Union, Literal, Dict
 
 import ray
 from ray.util.queue import Queue
@@ -57,6 +57,8 @@ def _map_dataset(
         load_from_cache_file (bool):
             If a cache file storing the output of the pipe
             can be identified, use it instead of recomputing.
+        cache_file_name (str):
+            Provide the name of a path for the cache file.
         writer_batch_size (int):
             Number of rows per write operation for the cache
             file writer.
@@ -290,3 +292,74 @@ def _map_dataset(
     ray.wait(futures, num_returns=len(futures), timeout=1)
 
     return result
+
+
+def _map_dataset_dict(
+    self: datasets.DatasetDict,
+    pipe: "DistributedDataPipe",
+    batch_size: Optional[int] = 1000,
+    drop_last_batch: bool = False,
+    keep_in_memory: bool = False,
+    load_from_cache_file: Optional[bool] = None,
+    cache_file_names: Optional[Dict[str, Optional[str]]] = None,
+    writer_batch_size: Optional[int] = 1000,
+    disable_nullable: bool = False,
+    desc: Optional[str] = None,
+) -> datasets.DatasetDict:
+    """Adaption of the `datasets.DatasetDict.map` function tailored
+    to applying a `DistributedDataPipe` instance to a dataset dict
+    using ray`
+
+    Arguments:
+        self (datasets.DatasetDict): dataset dict
+        pipe (DistributedDataPipe): data pipe
+        batch_size (int):
+            number of examples per batch provided to pipe.
+            Defaults to 1000.
+        drop_last_batch (bool):
+            Whether a last batch smaller than the batch_size
+            should be dropped instead of being processed
+        keep_in_memory (bool):
+            Keep the dataset in memory instead of writing it
+            to a cache file.
+        load_from_cache_file (bool):
+            If a cache file storing the output of the pipe
+            can be identified, use it instead of recomputing.
+        cache_file_names (dict[str, Optional[str]]):
+            Provide the name of a path for the cache file.
+        writer_batch_size (int):
+            Number of rows per write operation for the cache
+            file writer.
+        disable_nullable (bool):
+            Disallow null values in the table.
+        desc (str):
+            Meaningful description to be displayed alongside
+            with the progress bar while mapping examples.
+
+    Returns:
+        transformed_dataset (datasets.Dataset):
+            dataset after being passed through the data pipe
+
+    """
+
+    self._check_values_type()
+    if cache_file_names is None:
+        cache_file_names = {k: None for k in self}
+
+    return datasets.DatasetDict(
+        {
+            key: _map_dataset(
+                self=data,
+                pipe=pipe,
+                batch_size=batch_size,
+                drop_last_batch=drop_last_batch,
+                keep_in_memory=keep_in_memory,
+                load_from_cache_file=load_from_cache_file,
+                cache_file_name=cache_file_names[key],
+                writer_batch_size=writer_batch_size,
+                disable_nullable=disable_nullable,
+                desc=desc,
+            )
+            for key, data in self.items()
+        }
+    )

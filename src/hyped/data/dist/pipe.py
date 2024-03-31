@@ -11,7 +11,7 @@ from hyped.utils.feature_checks import check_feature_equals
 
 import hyped.data.dist.pool
 from .pool import ActorPool, RemoteWorker
-from .map import _map_dataset
+from .map import _map_dataset, _map_dataset_dict
 
 
 class RemoteDataPipe(DataPipe, RemoteWorker):
@@ -360,7 +360,6 @@ class DistributedDataPipe(DataPipe):
         if isinstance(
             data,
             (
-                datasets.DatasetDict,
                 datasets.IterableDataset,
                 datasets.IterableDatasetDict,
             ),
@@ -369,6 +368,9 @@ class DistributedDataPipe(DataPipe):
 
         if isinstance(data, datasets.Dataset):
             return _map_dataset(self=data, pipe=self, **kwargs)
+
+        if isinstance(data, datasets.DatasetDict):
+            return _map_dataset_dict(self=data, pipe=self, **kwargs)
 
     def apply(
         self,
