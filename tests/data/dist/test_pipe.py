@@ -87,7 +87,7 @@ class TestDistributedDataPipe(_TestDataPipe):
                 ]
             )
 
-        raise TypeError(request.param)
+        raise ValueError(request.param)
 
     def test_preparation_logic(self, sample_data_pipe):
         sample_data_pipe._spawn_pool(num_actors=1)

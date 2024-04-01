@@ -262,9 +262,9 @@ def _map_dataset(
                 rank, done, content = update_queue.get()
 
                 if isinstance(content, Exception):
-                    # TODO: raise with stack trace exception
-                    #       thrown in actor
-                    raise content
+                    raise RuntimeError(
+                        "Error in remote worker with rank %i" % rank
+                    ) from content
 
                 if done:
                     shards_done += 1

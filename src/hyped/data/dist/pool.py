@@ -3,7 +3,7 @@ import ray
 from ray.actor import ActorHandle
 from ray.util.queue import Queue, Empty
 from dataclasses import dataclass, field
-from typing import Callable, TypeVar
+from typing import Callable, TypeVar, Iterable
 
 from .utils import get_actor_type
 
@@ -136,10 +136,9 @@ class ActorPool(object):
 
         ranks = ray.get([a.get_rank.remote() for a in actors])
         self.actors = dict(zip(ranks, actors))
+        # create idle rank queue used to get ranks waiting for work
         self.idle_ranks = Queue(maxsize=len(actors))
-        # add all ranks
-        for rank in ranks:
-            self.idle_ranks.put(rank)
+        self.idle_ranks.put_nowait_batch(ranks)
 
         # ping all actors
         ray.wait(
@@ -208,3 +207,20 @@ class ActorPool(object):
         """Destroy all actors of the pool"""
         for actor in self.actors:
             ray.kill(actor)
+
+    @staticmethod
+    def reserve_from_each(
+        pools: list[ActorPool], timeout: None | float = None
+    ) -> Iterable[ReservedActor]:
+        tasks = [
+            pool.idle_ranks.actor.get.remote(timeout=timeout) for pool in pools
+        ]
+        task2idx = {t: i for i, t in enumerate(tasks)}
+
+        while len(tasks) > 0:
+            done, tasks = ray.wait(tasks, num_returns=1)
+
+            for idx, rank in zip(map(task2idx.get, done), ray.get(done)):
+                assert idx is not None
+                pool = pools[idx]
+                yield idx, _ReservedActor(pool, rank, pool.actors[rank])

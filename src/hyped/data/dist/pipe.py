@@ -13,6 +13,8 @@ import hyped.data.dist.pool
 from .pool import ActorPool, RemoteWorker
 from .map import _map_dataset, _map_dataset_dict
 
+import traceback
+
 
 class RemoteDataPipe(DataPipe, RemoteWorker):
     """(Internal) Remote Data Pipe
@@ -78,7 +80,8 @@ class RemoteDataPipe(DataPipe, RemoteWorker):
             ):
                 update_queue.put(content)
         except Exception as e:
-            update_queue.put((kwargs["rank"], False, e))
+            tb = "".join(traceback.format_exception(e))
+            update_queue.put((kwargs["rank"], False, Exception(tb)))
 
 
 # TODO: remote data pipes currently do not support statistics
@@ -87,8 +90,8 @@ class RemoteDataPipe(DataPipe, RemoteWorker):
 class DistributedDataPipe(DataPipe):
     """Distributed Data Pipe
 
-    Uses `ray` to distribute the heavy workload over a ray cluster.
-    It creates a number of Actors of the `RemoteDataPipe` type to
+    Uses `ray` to distribute workload over a ray cluster. It
+    creates a number of Actors of the `RemoteDataPipe` type to
     which the data is being distributed during processing.
 
     Arguments:

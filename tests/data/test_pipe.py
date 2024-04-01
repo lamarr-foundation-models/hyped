@@ -43,17 +43,18 @@ class TestDataPipe:
         sample_data_pipe.prepare(x)
         assert sample_data_pipe.is_prepared
 
-        # get processor from pipe
-        p2 = sample_data_pipe[1]
-        # prepare any processor with Y
-        # this should break the feature pipe
-        p2.prepare(y)
-        assert p2.is_prepared
-        assert not sample_data_pipe.is_prepared
+        if len(sample_data_pipe) > 1:
+            # get processor from pipe
+            p2 = sample_data_pipe[1]
+            # prepare any processor with Y
+            # this should break the feature pipe
+            p2.prepare(y)
+            assert p2.is_prepared
+            assert not sample_data_pipe.is_prepared
 
-        # preparing the pipe again should fix the issue
-        sample_data_pipe.prepare(x)
-        assert sample_data_pipe.is_prepared
+            # preparing the pipe again should fix the issue
+            sample_data_pipe.prepare(x)
+            assert sample_data_pipe.is_prepared
 
     def test_feature_management(self, sample_data_pipe):
         # create input and expected output features
