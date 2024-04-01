@@ -177,7 +177,6 @@ def _map_dataset(
                     + suffix_template.format(rank=rank, num_proc=num_proc)
                     + extension
                 )
-                logger.info(f"Process #{rank} will write at {cache_file_name}")
             else:
                 cache_file_name = (
                     base_name

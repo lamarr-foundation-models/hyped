@@ -103,21 +103,21 @@ class DistributedDataPipe(DataPipe):
             `DistributedDataPipe.apply` function. However, this can
             be set explicitly to allow different degrees of
             parallelism for different components of the data pipe.
-        **kwargs:
-            arguments forwarded to `ray.remote` function, specify
-            the required resources here. For more infomation please
-            refer to the ray documentation.
+        proc_options (dict[str, Any]):
+            arguments forwarded to `ray.remote` function, used to
+            specify the required resources per process. For more
+            infomation please refer to the ray documentation.
     """
 
     def __init__(
         self,
         processors: list[BaseDataProcessor, DataPipe] = [],
         num_proc: None | int = None,
-        **kwargs,
+        proc_options: dict[str, Any] = {},
     ) -> None:
         super(DistributedDataPipe, self).__init__(processors)
 
-        self._spawn_kwargs = kwargs
+        self._options = proc_options
         # pool of all worker actors
         self._pool: None | ActorPool = None
         # spawn all actors if number of processes is specified
@@ -165,8 +165,8 @@ class DistributedDataPipe(DataPipe):
 
         # remote worker spawn function
         spawn = lambda rank: (
-            ray.remote(**self._spawn_kwargs)
-            if len(self._spawn_kwargs) > 0
+            ray.remote(**self._options)
+            if len(self._options) > 0
             else ray.remote
         )(RemoteDataPipe).remote(list(self), rank)
         # set actor pool for distributed data pipe
