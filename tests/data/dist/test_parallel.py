@@ -67,9 +67,3 @@ class TestDistributedParallelDataPipe(_TestDistributedDataPipe):
             )
 
         raise ValueError(request.param)
-
-    def test_preparation_logic(self, sample_data_pipe):
-        sample_data_pipe._spawn_pool(num_actors=1)
-        super(TestDistributedDataPipe, self).test_preparation_logic(
-            sample_data_pipe
-        )
