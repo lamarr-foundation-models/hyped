@@ -1,14 +1,12 @@
-import os
 from dataclasses import dataclass
 from typing import Any
 
 import datasets
-import datasets.distributed
+import ray
 import torch
 import transformers
 
-from hyped.data.io.writers.json import JsonDatasetWriter
-from hyped.data.pipe import DataPipe
+from hyped.data.dist.pipe import DistributedDataPipe
 from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
@@ -43,10 +41,8 @@ class ApplyModelProcessor(BaseDataProcessor[ApplyModelProcessorConfig]):
         self, examples: dict[str, list[Any]], index: list[int], rank: int
     ) -> tuple[dict[str, list[Any]], list[int]]:
         if self.model is None:
-            # get local rank in distributed setting
-            local_rank = int(os.environ["LOCAL_RANK"])
             # device and model placeholders
-            self.device = torch.device("cuda:%i" % local_rank)
+            self.device = torch.device("cuda")
             self.model = transformers.AutoModel.from_pretrained(
                 self.config.pretrained_ckpt
             ).to(self.device)
@@ -71,20 +67,12 @@ class ApplyModelProcessor(BaseDataProcessor[ApplyModelProcessorConfig]):
 
 
 if __name__ == "__main__":
+    ray.init()
+
     # load dataset
-    ds = datasets.load_dataset("imdb", split="train")  # , streaming=True)
-    ds = ds.to_iterable_dataset(num_shards=8)
-
-    ds = datasets.distributed.split_dataset_by_node(
-        ds,
-        rank=int(os.environ["RANK"]),
-        world_size=int(os.environ["WORLD_SIZE"]),
-    )
-
-    # define data pipeline
-    # TODO: implement a distributed data pipe which handles the
-    # dataset sharding and also the collection of outputs
-    pipe = DataPipe(
+    ds = datasets.load_dataset("imdb", split="train")
+    # specify pipeline
+    pipe = DistributedDataPipe(
         [
             HuggingFaceTokenizer(
                 HuggingFaceTokenizerConfig(
@@ -99,13 +87,11 @@ if __name__ == "__main__":
             ApplyModelProcessor(
                 ApplyModelProcessorConfig(pretrained_ckpt="bert-base-uncased")
             ),
-        ]
+        ],
+        num_proc=2,
+        proc_options=dict(num_gpus=1),
     )
-
-    # apply dataset and write to output
+    # apply pipe to dataset
     ds = pipe.apply(ds)
-    JsonDatasetWriter(
-        save_dir="output/worker_%i" % int(os.environ["RANK"]),
-        exist_ok=True,
-        num_proc=1,
-    ).consume(ds)
+
+    ray.shutdown()
