@@ -11,7 +11,12 @@ from hyped.utils.feature_checks import check_feature_equals
 
 import hyped.data.dist.pool
 from .pool import ActorPool, RemoteWorker
-from .map import _map_dataset, _map_dataset_dict, _map_iterable_dataset
+from .map import (
+    _map_dataset,
+    _map_dataset_dict,
+    _map_iterable_dataset,
+    _map_iterable_dataset_dict,
+)
 
 import traceback
 
@@ -379,7 +384,13 @@ class DistributedDataPipe(DataPipe):
         if isinstance(data, datasets.IterableDataset):
             return _map_iterable_dataset(self=data, pipe=self, **kwargs)
 
-        raise NotImplementedError()
+        if isinstance(data, datasets.IterableDatasetDict):
+            return _map_iterable_dataset_dict(self=data, pipe=self, **kwargs)
+
+        raise ValueError(
+            "`DistributedDataPipe` got an invalid dataset type, got %s "
+            "of type %s" % (str(data), type(data))
+        )
 
     def apply(
         self,

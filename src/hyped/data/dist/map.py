@@ -22,6 +22,8 @@ from datasets.iterable_dataset import (
     Key,
     _examples_to_batch,
     _batch_to_examples,
+    _batch_arrow_tables,
+    _convert_to_arrow,
 )
 from datasets.fingerprint import (
     is_caching_enabled,
@@ -401,6 +403,9 @@ class DistributedMappedExamplesIterable(_BaseExamplesIterable):
         # make sure the actor pool of the data pipe is ready
         assert pipe.is_pool_ready
 
+        if self.formatting and self.formatting.format_type == "arrow":
+            self.iter_arrow = self._iter_arrow
+
     def __iter__(self):
         if self.formatting and self.formatting.format_type == "arrow":
             yield from ArrowExamplesIterable(self._iter_arrow, {})
@@ -569,4 +574,23 @@ def _map_iterable_dataset(
         shuffling=deepcopy(self._shuffling),
         distributed=deepcopy(self._distributed),
         token_per_repo_id=self._token_per_repo_id,
+    )
+
+
+def _map_iterable_dataset_dict(
+    self,
+    pipe: "DistributedDataPipe",
+    batch_size: Optional[int] = 1000,
+    drop_last_batch: bool = False,
+) -> datasets.IterableDatasetDict:
+    return datasets.IterableDatasetDict(
+        {
+            k: _map_iterable_dataset(
+                self=dataset,
+                pipe=pipe,
+                batch_size=batch_size,
+                drop_last_batch=drop_last_batch,
+            )
+            for k, dataset in self.items()
+        }
     )
