@@ -1,6 +1,9 @@
+from __future__ import annotations
 import os
 import datasets
-from typing import Optional, Callable, TypeVar, Union, Literal, Dict
+import numpy as np
+import pyarrow as pa
+from typing import Optional, Callable, TypeVar, Union, Literal, Dict, Iterator
 
 import ray
 from ray.util.queue import Queue
@@ -11,6 +14,15 @@ from datasets.arrow_dataset import (
     NonExistentDatasetError,
     _concatenate_map_style_datasets,
 )
+from datasets.iterable_dataset import (
+    _BaseExamplesIterable,
+    TypedExamplesIterable,
+    FormattingConfig,
+    ArrowExamplesIterable,
+    Key,
+    _examples_to_batch,
+    _batch_to_examples,
+)
 from datasets.fingerprint import (
     is_caching_enabled,
     update_fingerprint,
@@ -18,8 +30,11 @@ from datasets.fingerprint import (
     format_transform_for_fingerprint,
     format_kwargs_for_fingerprint,
 )
+from datasets.formatting import TensorFormatter, get_formatter
 from datasets.utils import tqdm as hf_tqdm
-from itertools import compress
+from itertools import compress, islice, count
+from copy import deepcopy
+from math import ceil
 
 
 @transmit_tasks
@@ -233,7 +248,6 @@ def _map_dataset(
                     actor.actor._map_single.remote(
                         shard=shard,
                         update_queue=update_queue,
-                        rank=actor.rank,
                         offset=sum(map(len, shards[: actor.rank])),
                         cache_file_name=formatted_cache_file_name,
                         new_fingerprint=formatted_new_fingerprint,
@@ -361,4 +375,198 @@ def _map_dataset_dict(
             )
             for key, data in self.items()
         }
+    )
+
+
+class DistributedMappedExamplesIterable(_BaseExamplesIterable):
+    def __init__(
+        self,
+        ex_iterable: _BaseExamplesIterable,
+        pipe: DistributedDataPipe,
+        batch_size: int,
+        drop_last_batch: bool,
+        formatting: FormattingConfig,
+    ) -> None:
+        if batch_size is None:
+            raise ValueError("batch size not specified")
+
+        super(DistributedMappedExamplesIterable, self).__init__()
+
+        self.ex_iterable = ex_iterable
+        self.pipe = pipe
+
+        self.batch_size = batch_size
+        self.drop_last_batch = drop_last_batch
+        self.formatting = formatting
+        # make sure the actor pool of the data pipe is ready
+        assert pipe.is_pool_ready
+
+    def __iter__(self):
+        if self.formatting and self.formatting.format_type == "arrow":
+            yield from ArrowExamplesIterable(self._iter_arrow, {})
+        else:
+            yield from self._iter()
+
+    def _iter(self):
+        iterable = iter(self.ex_iterable)
+        counter = count()
+
+        if self.formatting:
+            formatter = get_formatter(self.formatting.format_type)
+            format_dict = (
+                formatter.recursive_tensorize
+                if isinstance(formatter, TensorFormatter)
+                else cast_to_python_objects
+            )
+        else:
+            format_dict = None
+
+        def get_mini_batches(num_batches):
+            # give each worker an initial workload
+            batch = list(islice(iterable, self.batch_size * num_batches))
+
+            # check if all batches are complete
+            if (
+                len(batch) < self.batch_size * num_batches
+            ) and self.drop_last_batch:
+                # if not then drop the last incomplete batch
+                n = self.batch_size * (len(batch) // self.batch_size)
+                batch = batch[:n]
+
+            if len(batch) == 0:
+                return
+
+            keys, examples = zip(*batch)
+            mini_batch_size = ceil(len(batch) / num_batches)
+
+            for i in range(num_batches):
+                # get mini batch for i-th worker
+                mini_batch = examples[
+                    i * mini_batch_size : (i + 1) * mini_batch_size
+                ]
+                num_examples = len(mini_batch)
+                # prepare mini batch
+                mini_batch = _examples_to_batch(mini_batch)
+                mini_batch = (
+                    format_dict(mini_batch) if format_dict else mini_batch
+                )
+                # build new key for mini batch
+                key = "_".join(
+                    map(
+                        str,
+                        keys[i * mini_batch_size : (i + 1) * mini_batch_size],
+                    )
+                )
+
+                yield num_examples, key, mini_batch
+
+        # reserve all available actors
+        with self.pipe._pool.reserve_all() as actors:
+            num_proc = len(actors)
+            assert num_proc > 0
+
+            futures = []
+            future2key = {}
+            future2actor = {}
+            # schedule initial workload
+            for actor, (n, new_key, mini_batch) in zip(
+                actors.actors, get_mini_batches(num_batches=num_proc)
+            ):
+                f = actor.batch_process.remote(
+                    examples=mini_batch,
+                    index=[next(counter) for _ in range(n)],
+                )
+
+                futures.append(f)
+                future2key[f] = new_key
+                future2actor[f] = actor
+
+            while len(futures) > 0:
+                # collect all workers that are finished at this point
+                dones, futures = ray.wait(futures, num_returns=1)
+
+                # collect and yield outputs
+                for done, out_batch in zip(dones, ray.get(dones)):
+                    actor = future2actor.pop(done)
+                    new_key = future2key.pop(done)
+
+                    # schedule next work for actor
+                    # this loop either does example one iteration
+                    # over one requested batch or no iteration at
+                    # all when the dataset is exhausted
+                    for n, new_key, mini_batch in get_mini_batches(
+                        num_batches=1
+                    ):
+                        f = actor.batch_process.remote(
+                            examples=mini_batch,
+                            index=[next(counter) for _ in range(n)],
+                        )
+
+                        futures.append(f)
+                        future2key[f] = new_key
+                        future2actor[f] = actor
+
+                    # yield examples from output batch
+                    for example in _batch_to_examples(out_batch):
+                        yield new_key, example
+
+    def _iter_arrow(self) -> Iterator[Tuple[Key, pa.Table]]:
+        raise NotImplementedError()
+
+    def shuffle_data_sources(
+        self, generator: np.random.Generator
+    ) -> DistributedMappedExamplesIterable:
+        return DistributedMappedExamplesIterable(
+            self.ex_iterable.shuffle_data_sources(generator),
+            pipe=self.pipe,
+            batch_size=self.batch_size,
+            drop_last_batch=self.drop_last_batch,
+            formatting=self.formatting,
+        )
+
+    def shard_data_sources(
+        self, worker_id: int, num_workers: int
+    ) -> DistributedMappedExamplesIterable:
+        return DistributedMappedExamplesIterable(
+            self.ex_iterable.shard_data_sources(worker_id, num_workers),
+            pipe=self.pipe,
+            batch_size=self.batch_size,
+            drop_last_batch=self.drop_last_batch,
+            formatting=self.formatting,
+        )
+
+    @property
+    def n_shards(self) -> int:
+        return self.ex_iterable.n_shards
+
+
+def _map_iterable_dataset(
+    self,
+    pipe: "DistributedDataPipe",
+    batch_size: Optional[int] = 1000,
+    drop_last_batch: bool = False,
+) -> datasets.IterableDataset:
+    ex_iterable = DistributedMappedExamplesIterable(
+        TypedExamplesIterable(
+            self._ex_iterable,
+            pipe.in_features,
+            token_per_repo_id=self._token_per_repo_id,
+        ),
+        pipe=pipe,
+        batch_size=batch_size,
+        drop_last_batch=drop_last_batch,
+        formatting=self._formatting,
+    )
+
+    info = self.info.copy()
+    info.features = pipe.out_features
+
+    return datasets.IterableDataset(
+        ex_iterable=ex_iterable,
+        info=info,
+        split=self._split,
+        formatting=self._formatting,
+        shuffling=deepcopy(self._shuffling),
+        distributed=deepcopy(self._distributed),
+        token_per_repo_id=self._token_per_repo_id,
     )

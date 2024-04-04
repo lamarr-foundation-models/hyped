@@ -122,7 +122,6 @@ class DistributedParallelDataPipe(DataPipe):
             futures[i] = actor.actor.batch_process.remote(
                 examples=examples,
                 index=index,
-                rank=actor.rank,
                 return_index=True,
             )
 

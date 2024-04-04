@@ -11,7 +11,7 @@ from hyped.utils.feature_checks import check_feature_equals
 
 import hyped.data.dist.pool
 from .pool import ActorPool, RemoteWorker
-from .map import _map_dataset, _map_dataset_dict
+from .map import _map_dataset, _map_dataset_dict, _map_iterable_dataset
 
 import traceback
 
@@ -69,10 +69,21 @@ class RemoteDataPipe(DataPipe, RemoteWorker):
     def _map_single(
         self, shard: datasets.Dataset, update_queue: Queue, **kwargs
     ) -> None:
-        kwargs["batched"] = True
-        kwargs["features"] = self.out_features
-        kwargs["with_indices"] = True
-        kwargs["with_rank"] = True
+        # doesn't accept the rank argument
+        # rank is inferred from the worker instance
+        if "rank" in kwargs:
+            raise TypeError(
+                "`_map_single` got an unexpected keyword argument `rank`"
+            )
+
+        # hard code some keyword arguments
+        kwargs |= dict(
+            batched=True,
+            with_indices=True,
+            with_rank=True,
+            features=self.out_features,
+            rank=self.get_rank(),
+        )
 
         try:
             for content in datasets.Dataset._map_single(
@@ -81,7 +92,7 @@ class RemoteDataPipe(DataPipe, RemoteWorker):
                 update_queue.put(content)
         except Exception as e:
             tb = "".join(traceback.format_exception(e))
-            update_queue.put((kwargs["rank"], False, Exception(tb)))
+            update_queue.put((self.get_rank(), False, Exception(tb)))
 
 
 # TODO: remote data pipes currently do not support statistics
@@ -318,18 +329,17 @@ class DistributedDataPipe(DataPipe):
 
         if not self.is_pool_ready:
             raise RuntimeError(
-                "Actors of `DistributedDataPipe` not initialized. "
-                "This occurs when a standard `DataPipe` instance "
-                "contains a `DistributedDataPipe`."
+                "Actor Pool of `DistributedDataPipe` not initialized. "
+                "This might occur when a standard a `DistributedDataPipe` "
+                "is nested in a standard `DataPipe`."
             )
 
-        with self._pool.reserve() as (rank, actor):
+        with self._pool.reserve() as (_, actor):
             # call function on actor and get output
             output = ray.get(
                 actor.batch_process.remote(
                     examples=examples,
                     index=index,
-                    rank=rank,
                     return_index=return_index,
                 )
             )
@@ -360,20 +370,16 @@ class DistributedDataPipe(DataPipe):
         | datasets.IterableDataset
         | datasets.IterableDatasetDict
     ):
-        if isinstance(
-            data,
-            (
-                datasets.IterableDataset,
-                datasets.IterableDatasetDict,
-            ),
-        ):
-            raise NotImplementedError()
-
         if isinstance(data, datasets.Dataset):
             return _map_dataset(self=data, pipe=self, **kwargs)
 
         if isinstance(data, datasets.DatasetDict):
             return _map_dataset_dict(self=data, pipe=self, **kwargs)
+
+        if isinstance(data, datasets.IterableDataset):
+            return _map_iterable_dataset(self=data, pipe=self, **kwargs)
+
+        raise NotImplementedError()
 
     def apply(
         self,
