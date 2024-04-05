@@ -385,6 +385,7 @@ class DistributedMappedExamplesIterable(_BaseExamplesIterable):
         self,
         ex_iterable: _BaseExamplesIterable,
         pipe: DistributedDataPipe,
+        unordered: bool,
         batch_size: int,
         drop_last_batch: bool,
         formatting: FormattingConfig,
@@ -397,6 +398,7 @@ class DistributedMappedExamplesIterable(_BaseExamplesIterable):
         self.ex_iterable = ex_iterable
         self.pipe = pipe
 
+        self.unordered = unordered
         self.batch_size = batch_size
         self.drop_last_batch = drop_last_batch
         self.formatting = formatting
@@ -487,8 +489,13 @@ class DistributedMappedExamplesIterable(_BaseExamplesIterable):
                 future2actor[f] = actor
 
             while len(futures) > 0:
-                # collect all workers that are finished at this point
-                dones, futures = ray.wait(futures, num_returns=1)
+                if self.unordered:
+                    # collect any worker that is finished
+                    dones, futures = ray.wait(futures, num_returns=1)
+                else:
+                    # wait for the first worker in the list to finish
+                    # to preserve the original order of the dataset
+                    dones, _ = ray.wait([futures.pop(0)], num_returns=1)
 
                 # collect and yield outputs
                 for done, out_batch in zip(dones, ray.get(dones)):
@@ -548,9 +555,31 @@ class DistributedMappedExamplesIterable(_BaseExamplesIterable):
 def _map_iterable_dataset(
     self,
     pipe: "DistributedDataPipe",
+    unordered: bool = True,
     batch_size: Optional[int] = 1000,
     drop_last_batch: bool = False,
 ) -> datasets.IterableDataset:
+    """Adaption of the `datasets.IterableDataset.map` function tailored
+    to applying a `DistributedDataPipe` instance to a dataset
+    using ray`
+
+    Arguments:
+        self (datasets.Dataset): dataset
+        pipe (DistributedDataPipe): data pipe
+        unordered (bool):
+            whether the order of the dataset should be preserved
+        batch_size (int):
+            number of examples per batch provided to pipe.
+            Defaults to 1000.
+        drop_last_batch (bool):
+            Whether a last batch smaller than the batch_size
+            should be dropped instead of being processed
+
+    Returns:
+        transformed_dataset (datasets.IterableDataset):
+            dataset after being passed through the data pipe
+
+    """
     ex_iterable = DistributedMappedExamplesIterable(
         TypedExamplesIterable(
             self._ex_iterable,
@@ -558,6 +587,7 @@ def _map_iterable_dataset(
             token_per_repo_id=self._token_per_repo_id,
         ),
         pipe=pipe,
+        unordered=unordered,
         batch_size=batch_size,
         drop_last_batch=drop_last_batch,
         formatting=self._formatting,
@@ -580,13 +610,36 @@ def _map_iterable_dataset(
 def _map_iterable_dataset_dict(
     self,
     pipe: "DistributedDataPipe",
+    unordered: bool = True,
     batch_size: Optional[int] = 1000,
     drop_last_batch: bool = False,
 ) -> datasets.IterableDatasetDict:
+    """Adaption of the `datasets.IterableDatasetDict.map` function tailored
+    to applying a `DistributedDataPipe` instance to a dataset
+    using ray`
+
+    Arguments:
+        self (datasets.Dataset): dataset
+        pipe (DistributedDataPipe): data pipe
+        unordered (bool):
+            whether the order of the dataset should be preserved
+        batch_size (int):
+            number of examples per batch provided to pipe.
+            Defaults to 1000.
+        drop_last_batch (bool):
+            Whether a last batch smaller than the batch_size
+            should be dropped instead of being processed
+
+    Returns:
+        transformed_dataset (datasets.IterableDataset):
+            dataset after being passed through the data pipe
+
+    """
     return datasets.IterableDatasetDict(
         {
             k: _map_iterable_dataset(
                 self=dataset,
+                unordered=unordered,
                 pipe=pipe,
                 batch_size=batch_size,
                 drop_last_batch=drop_last_batch,

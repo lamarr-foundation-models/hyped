@@ -424,9 +424,6 @@ class DistributedDataPipe(DataPipe):
         # in the arguments
         num_proc = kwargs.pop("num_proc", None)
 
-        # destroy the pool after exection
-        destroy_pool_after = not self.is_pool_ready
-
         # check the number of processes argument
         if (
             self.is_pool_ready
