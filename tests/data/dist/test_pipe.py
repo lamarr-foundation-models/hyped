@@ -7,6 +7,7 @@ from tests.data.processors.test_base import (
     ConstantDataProcessorConfig,
 )
 from tests.data.test_pipe import TestDataPipe as _TestDataPipe
+from functools import partial
 import pytest
 
 
@@ -107,10 +108,18 @@ class TestDistributedDataPipe(_TestDataPipe):
             sample_data_pipe
         )
 
-    @pytest.mark.skip(reason="NotImplementedError")
-    def test_apply_to_iterable_dataset(self):
-        pass
+    @pytest.mark.parametrize("num_shards", [1, 5, 10])
+    def test_apply_to_iterable_dataset(self, sample_data_pipe, num_shards):
+        sample_data_pipe._map = partial(sample_data_pipe._map, unordered=False)
+        super(TestDistributedDataPipe, self).test_apply_to_iterable_dataset(
+            sample_data_pipe, num_shards
+        )
 
-    @pytest.mark.skip(reason="NotImplementedError")
-    def test_apply_to_iterable_dataset_dict(self):
-        pass
+    @pytest.mark.parametrize("num_shards", [1, 5, 10])
+    def test_apply_to_iterable_dataset_dict(
+        self, sample_data_pipe, num_shards
+    ):
+        sample_data_pipe._map = partial(sample_data_pipe._map, unordered=False)
+        super(
+            TestDistributedDataPipe, self
+        ).test_apply_to_iterable_dataset_dict(sample_data_pipe, num_shards)
