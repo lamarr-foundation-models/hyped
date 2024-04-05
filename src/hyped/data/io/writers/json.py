@@ -1,9 +1,9 @@
 import os
+from types import SimpleNamespace
 from typing import Any
 
 import _io
 import orjson
-from torch.utils.data._utils.worker import get_worker_info
 
 from .base import BaseDatasetWriter
 
@@ -36,18 +36,17 @@ class JsonDatasetWriter(BaseDatasetWriter):
             os.path.join(path, "data_shard_%i.jsonl" % worker_id), "wb+"
         )
 
-    def finalize_worker(self) -> None:
+    def finalize_worker(self, state: SimpleNamespace) -> None:
         """Cleanup and close the save file"""
         # finalize the worker
-        super(JsonDatasetWriter, self).finalize_worker()
+        super(JsonDatasetWriter, self).finalize_worker(state)
 
-        worker_info = get_worker_info()
         # check if the worker ouput file exists after finalization
         # or if it got deleted because it was empty
-        if os.path.isfile(worker_info.args.save_file_path):
+        if os.path.isfile(state.save_file_path):
             # remove trailing newline character when the file
             # exists, i.e. contains content
-            with open(worker_info.args.save_file_path, "r+") as f:
+            with open(state.save_file_path, "r+") as f:
                 f.seek(f.seek(0, os.SEEK_END) - 1, os.SEEK_SET)
                 f.truncate()
 
@@ -56,8 +55,9 @@ class JsonDatasetWriter(BaseDatasetWriter):
         shard_id: int,
         example_id: int,
         example: dict[str, Any],
+        state: SimpleNamespace,
     ) -> None:
-        """Encode an example in json and write it to the worker's save file.
+        """Encode an example to json and write it to the worker's save file.
 
         Arguments:
             worker (mp.Process): worker process
@@ -65,7 +65,7 @@ class JsonDatasetWriter(BaseDatasetWriter):
             shard_id (int): dataset shard id
             example_id (int): example id in the current dataset shard
             example (dict[str, Any]): the example to consume
+            state (SimpleNamespace): worker state
         """
         # save example to file in json format
-        worker_info = get_worker_info()
-        worker_info.args.save_file.write(orjson.dumps(example) + b"\n")
+        state.save_file.write(orjson.dumps(example) + b"\n")

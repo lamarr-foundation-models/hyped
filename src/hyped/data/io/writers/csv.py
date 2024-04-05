@@ -1,10 +1,10 @@
 import csv
 import os
+from types import SimpleNamespace
 from typing import Any
 
 import _io
 import datasets
-from torch.utils.data._utils.worker import get_worker_info
 
 from hyped.utils.feature_checks import check_feature_equals
 
@@ -55,24 +55,25 @@ class CsvDatasetWriter(BaseDatasetWriter):
         # consume dataset
         super(CsvDatasetWriter, self).consume(data)
 
-    def initialize_worker(self) -> None:
-        super(CsvDatasetWriter, self).initialize_worker()
+    def initialize_worker(self, state: SimpleNamespace) -> None:
+        """Create the csv writer instance"""
+        super(CsvDatasetWriter, self).initialize_worker(state)
         # create csv writer
-        worker_info = get_worker_info()
-        worker_info.args.csv_writer = csv.DictWriter(
-            worker_info.args.save_file,
-            fieldnames=list(worker_info.dataset.features.keys()),
+        state.csv_writer = csv.DictWriter(
+            state.save_file,
+            fieldnames=list(state.dataset.features.keys()),
         )
         # write header to file
-        worker_info.args.csv_writer.writeheader()
+        state.csv_writer.writeheader()
 
     def consume_example(
         self,
         shard_id: int,
         example_id: int,
         example: dict[str, Any],
+        state: SimpleNamespace,
     ) -> None:
-        """Encode an example in json and write it to the worker's save file.
+        """Write the given example to to the worker's save file in csv format.
 
         Arguments:
             worker (mp.Process): worker process
@@ -80,7 +81,7 @@ class CsvDatasetWriter(BaseDatasetWriter):
             shard_id (int): dataset shard id
             example_id (int): example id in the current dataset shard
             example (dict[str, Any]): the example to consume
+            state (SimpleNamespace): worker state
         """
         # save example to file in json format
-        worker_info = get_worker_info()
-        worker_info.args.csv_writer.writerow(example)
+        state.csv_writer.writerow(example)

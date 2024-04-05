@@ -1,6 +1,7 @@
 import json
 import os
 from abc import ABC, abstractmethod
+from types import SimpleNamespace
 
 import _io
 from torch.utils.data._utils.worker import get_worker_info
@@ -54,35 +55,32 @@ class BaseDatasetWriter(BaseDatasetConsumer, ABC):
         """
         ...
 
-    def initialize_worker(self) -> None:
+    def initialize_worker(self, state: SimpleNamespace) -> None:
         """Open the save file for the worker"""
 
         worker_info = get_worker_info()
         # open data save file
-        worker_info.args.save_file = self.worker_shard_file_obj(
-            self.save_dir, worker_info.id
+        state.save_file = self.worker_shard_file_obj(
+            self.save_dir, worker_info.id if worker_info is not None else 1
         )
         # store file paths
-        worker_info.args.save_file_path = worker_info.args.save_file.name
-        worker_info.args.features_file_path = os.path.join(
-            self.save_dir, "features.json"
-        )
+        state.save_file_path = state.save_file.name
+        state.features_file_path = os.path.join(self.save_dir, "features.json")
 
-        if worker_info.id == 0:
+        if (worker_info is None) or (worker_info.id == 0):
             # save the datasets features
-            with open(worker_info.args.features_file_path, "w+") as f:
-                f.write(json.dumps(worker_info.dataset.features.to_dict()))
+            with open(state.features_file_path, "w+") as f:
+                f.write(json.dumps(state.dataset.features.to_dict()))
 
-    def finalize_worker(self) -> None:
+    def finalize_worker(self, state: SimpleNamespace) -> None:
         """Cleanup and close the save file"""
 
-        worker_info = get_worker_info()
         # check if the file is empty
-        worker_info.args.save_file.seek(0, os.SEEK_END)
-        is_empty = worker_info.args.save_file.tell() == 0
+        state.save_file.seek(0, os.SEEK_END)
+        is_empty = state.save_file.tell() == 0
         # close the file
-        worker_info.args.save_file.close()
+        state.save_file.close()
 
         # delete the file if it is empty
         if is_empty:
-            os.remove(worker_info.args.save_file_path)
+            os.remove(state.save_file_path)
