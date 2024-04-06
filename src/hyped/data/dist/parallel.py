@@ -13,8 +13,8 @@ from copy import deepcopy
 from typing import Any
 
 
-class ParallelFeaturesMixin(object):
-    """Parallle Features Mixin
+class ParallelDataPipeMixin(object):
+    """Parallel Data Pipe Mixin
 
     Overwrite some functions of the `DataPipe` interface according
     to the parallel workflow setup.
@@ -56,87 +56,6 @@ class ParallelFeaturesMixin(object):
         return datasets.Features(
             reduce(operator.or_, (pipe.out_features for pipe in self))
         )
-
-
-class RemoteParallelDataPipe(ParallelFeaturesMixin, RemoteDataPipe):
-    """(Internal) Remote Parallel Data Pipe"""
-
-
-class DistributedParallelDataPipe(ParallelFeaturesMixin, DistributedDataPipe):
-    """Distributed Parallel Data Pipe
-
-    Executes the list of distributed data pipes in parallel and
-    merges their outputs after all pipes have finished. The merging
-    is done in the order of the pipes in the input list. In case
-    of conflicting outputs, the one of the data pipe lastest in the
-    list is kept.
-
-    Arguments:
-        processors (list[DataPipe | DistributedDataPipe | BaseDataProcessor]):
-            data processors to be executed in parallel. Note that these
-            can also be data pipes in case one wants to parallelize not
-            just a single processor.
-        num_proc_per_pipe (None | int):
-            number of workers to spawn per data pipe. By default this value
-            is taken from the `num_proc` argument to the `.apply` function.
-    """
-
-    def __init__(
-        self,
-        processors: list[DataPipe | DistributedDataPipe | BaseDataProcessor],
-        num_proc_per_pipe: None | int = None,
-    ) -> None:
-        # convert all processors to distributed data pipes
-        processors = [
-            proc
-            if isinstance(proc, DistributedDataPipe)
-            else DistributedDataPipe(list(proc))
-            if isinstance(proc, DataPipe)
-            else DistributedDataPipe([proc])
-            for proc in processors
-        ]
-        # initialize as a standard data pipe
-        super(DistributedParallelDataPipe, self).__init__(
-            processors=processors, num_proc=num_proc_per_pipe
-        )
-
-    def _spawn_actor(self, rank: int) -> ActorHandle:
-        """Spawn a single remote worker actor"""
-        return ray.remote(RemoteParallelDataPipe).remote(list(self), rank)
-
-    def prepare(self, features: datasets.Features) -> datasets.Features:
-        """Prepare all data pipes for execution
-
-        Arguments:
-            features (Features):
-                input dataset features available to the processor on execution
-
-        Returns:
-            out_features (Features):
-                dataset features after applying all data pipes
-        """
-
-        # prepare main process
-        out_features = ParallelFeaturesMixin.prepare(self, features)
-
-        if (hyped.data.dist.pool.rank is None) or (
-            hyped.data.dist.pool.rank == 0
-        ):
-            with self._pool.reserve_all() as reserved_actors:
-                # make sure all actors are reserved for preparation
-                assert len(reserved_actors) == self.num_proc
-
-                # prepare all actors
-                for actor_out_features in ray.get(
-                    reserved_actors.for_all_actors(
-                        lambda a: a.prepare.remote(features)
-                    )
-                ):
-                    assert check_feature_equals(
-                        actor_out_features, out_features
-                    )
-
-        return out_features
 
     def batch_process(
         self,
@@ -222,3 +141,84 @@ class DistributedParallelDataPipe(ParallelFeaturesMixin, DistributedDataPipe):
         merged_out_batch = reduce(operator.or_, output_batches)
 
         return (merged_out_batch, index) if return_index else merged_out_batch
+
+
+class RemoteParallelDataPipe(ParallelDataPipeMixin, RemoteDataPipe):
+    """(Internal) Remote Parallel Data Pipe"""
+
+
+class DistributedParallelDataPipe(ParallelDataPipeMixin, DistributedDataPipe):
+    """Distributed Parallel Data Pipe
+
+    Executes the list of distributed data pipes in parallel and
+    merges their outputs after all pipes have finished. The merging
+    is done in the order of the pipes in the input list. In case
+    of conflicting outputs, the one of the data pipe lastest in the
+    list is kept.
+
+    Arguments:
+        processors (list[DataPipe | DistributedDataPipe | BaseDataProcessor]):
+            data processors to be executed in parallel. Note that these
+            can also be data pipes in case one wants to parallelize not
+            just a single processor.
+        num_proc_per_pipe (None | int):
+            number of workers to spawn per data pipe. By default this value
+            is taken from the `num_proc` argument to the `.apply` function.
+    """
+
+    def __init__(
+        self,
+        processors: list[DataPipe | DistributedDataPipe | BaseDataProcessor],
+        num_proc_per_pipe: None | int = None,
+    ) -> None:
+        # convert all processors to distributed data pipes
+        processors = [
+            proc
+            if isinstance(proc, DistributedDataPipe)
+            else DistributedDataPipe(list(proc))
+            if isinstance(proc, DataPipe)
+            else DistributedDataPipe([proc])
+            for proc in processors
+        ]
+        # initialize as a standard data pipe
+        super(DistributedParallelDataPipe, self).__init__(
+            processors=processors, num_proc=num_proc_per_pipe
+        )
+
+    def _spawn_actor(self, rank: int) -> ActorHandle:
+        """Spawn a single remote worker actor"""
+        return ray.remote(RemoteParallelDataPipe).remote(list(self), rank)
+
+    def prepare(self, features: datasets.Features) -> datasets.Features:
+        """Prepare all data pipes for execution
+
+        Arguments:
+            features (Features):
+                input dataset features available to the processor on execution
+
+        Returns:
+            out_features (Features):
+                dataset features after applying all data pipes
+        """
+
+        # prepare main process
+        out_features = ParallelDataPipeMixin.prepare(self, features)
+
+        if (hyped.data.dist.pool.rank is None) or (
+            hyped.data.dist.pool.rank == 0
+        ):
+            with self._pool.reserve_all() as reserved_actors:
+                # make sure all actors are reserved for preparation
+                assert len(reserved_actors) == self.num_proc
+
+                # prepare all actors
+                for actor_out_features in ray.get(
+                    reserved_actors.for_all_actors(
+                        lambda a: a.prepare.remote(features)
+                    )
+                ):
+                    assert check_feature_equals(
+                        actor_out_features, out_features
+                    )
+
+        return out_features
