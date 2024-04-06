@@ -2,10 +2,52 @@ import datasets
 import pytest
 
 from hyped.data.pipe import DataPipe
+from hyped.data.processors.features.format import (
+    FormatFeatures,
+    FormatFeaturesConfig,
+)
 from tests.data.processors.test_base import (
     ConstantDataProcessor,
     ConstantDataProcessorConfig,
 )
+
+
+@pytest.mark.parametrize(
+    "pipe,required_keys",
+    [
+        (
+            DataPipe(
+                [
+                    FormatFeatures(
+                        FormatFeaturesConfig(
+                            output_format={
+                                "X": "x",
+                                "Y": "y",
+                            }
+                        )
+                    )
+                ]
+            ),
+            ["x", "y"],
+        )
+    ],
+)
+def test_required_feature_keys(pipe, required_keys):
+    pipe.prepare(
+        datasets.Features(
+            {
+                "x": datasets.Value("int32"),
+                "y": datasets.Value("int32"),
+                "a": datasets.Value("int32"),
+                "b": datasets.Value("int32"),
+            }
+        )
+    )
+
+    pipe_required_keys = list(pipe.required_feature_keys)
+    # check
+    assert len(pipe_required_keys) == len(required_keys)
+    assert all(k in required_keys for k in pipe_required_keys)
 
 
 class TestDataPipe:

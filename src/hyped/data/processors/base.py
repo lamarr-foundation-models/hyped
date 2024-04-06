@@ -2,8 +2,19 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from itertools import chain
-from types import GeneratorType
-from typing import Any, ClassVar, Generator, Iterable, TypeVar
+from types import GeneratorType, UnionType
+from typing import (
+    Any,
+    ClassVar,
+    Generator,
+    GenericAlias,
+    Iterable,
+    Literal,
+    TypeVar,
+    Union,
+    get_args,
+    get_origin,
+)
 
 from datasets import Features
 from datasets.iterable_dataset import _batch_to_examples

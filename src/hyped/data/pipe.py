@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import operator
 import warnings
 from collections import deque
 from copy import deepcopy
@@ -13,7 +14,7 @@ from torch.utils.data import get_worker_info
 from hyped.data.processors.statistics.base import BaseDataStatistic
 from hyped.data.processors.statistics.report import statistics_report_manager
 from hyped.utils.arrow import convert_features_to_arrow_schema
-from hyped.utils.feature_access import join_feature_mappings
+from hyped.utils.feature_access import FeatureKey, join_feature_mappings
 from hyped.utils.feature_checks import check_feature_equals
 from hyped.utils.utils import is_package_installed
 
@@ -110,6 +111,15 @@ class DataPipe(list):
         the new features are prioritized.
         """
         return self[-1].out_features if len(self) > 0 else self.in_features
+
+    @property
+    def required_feature_keys(self) -> Iterable[FeatureKey]:
+        """Iterable over all required feature keys"""
+        # TODO: remove double feature keys
+        # TODO: remove required feature keys generated within the data pipe
+        return reduce(
+            operator.add, (proc.required_feature_keys for proc in self)
+        )
 
     def batch_process(
         self,
