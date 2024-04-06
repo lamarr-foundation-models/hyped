@@ -211,7 +211,7 @@ class ActorPool(object):
     @staticmethod
     def reserve_from_each(
         pools: list[ActorPool], timeout: None | float = None
-    ) -> Iterable[ReservedActor]:
+    ) -> Iterable[_ReservedActor]:
         tasks = [
             pool.idle_ranks.actor.get.remote(timeout=timeout) for pool in pools
         ]
