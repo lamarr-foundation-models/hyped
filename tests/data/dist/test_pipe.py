@@ -123,3 +123,10 @@ class TestDistributedDataPipe(_TestDataPipe):
         super(
             TestDistributedDataPipe, self
         ).test_apply_to_iterable_dataset_dict(sample_data_pipe, num_shards)
+
+    def test_error_on_false_nested(self):
+        with pytest.raises(
+            RuntimeError,
+            match="Cannot nest a distributed components in a non-distributed ",
+        ):
+            DataPipe([DistributedDataPipe([])]).apply(data=None)

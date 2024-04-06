@@ -12,6 +12,7 @@ from torch.utils.data import get_worker_info
 from hyped.data.processors.statistics.base import BaseDataStatistic
 from hyped.data.processors.statistics.report import statistics_report_manager
 from hyped.utils.arrow import convert_features_to_arrow_schema
+from hyped.utils.utils import is_package_installed
 
 from .processors.base import BaseDataProcessor
 
@@ -182,6 +183,21 @@ class DataPipe(list):
             schema=convert_features_to_arrow_schema(self.out_features),
         )
 
+    @property
+    def _has_distributed_components(self) -> bool:
+        """Helper to check whether the data pipe contains distirbuted
+        components"""
+        if is_package_installed("ray"):
+            from hyped.data.dist.pipe import DistributedDataPipe
+
+            return any(
+                isinstance(p, DistributedDataPipe)
+                or (isinstance(p, DataPipe) and p._has_distributed_components)
+                for p in self
+            )
+
+        return False
+
     def apply(
         self,
         data: (
@@ -208,6 +224,14 @@ class DataPipe(list):
         Returns:
             out (datasets.Dataset|datasets.DatasetDict): processed dataset(s)
         """
+
+        kwargs.get("num_proc", None) or 1
+        # check if the data pipe contains any distributed components
+        if self._has_distributed_components:
+            raise RuntimeError(
+                "Cannot nest a distributed components in a non-distributed "
+                "data pipe on top level."
+            )
 
         # TODO: test this preparation logic
         # get the dataset features
