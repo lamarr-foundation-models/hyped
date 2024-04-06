@@ -38,6 +38,7 @@ class ParallelDataPipeMixin(object):
 
     @property
     def in_features(self) -> datasets.Features:
+        """Input dataset features"""
         return self._in_features
 
     @property
@@ -65,6 +66,9 @@ class ParallelDataPipeMixin(object):
         return_index: bool = False,
     ) -> dict[str, list[Any]]:
         """Process a batch of examples
+
+        Sends the batch of examples to each distributed data pipe
+        to be processed in parallel and merges the results after.
 
         Arguments:
             examples (dict[str, list[Any]]): batch of examples to process
