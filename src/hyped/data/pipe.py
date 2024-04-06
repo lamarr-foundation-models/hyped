@@ -3,6 +3,7 @@ from __future__ import annotations
 import warnings
 from collections import deque
 from copy import deepcopy
+from functools import reduce
 from typing import Any, Iterable
 
 import datasets
@@ -12,6 +13,8 @@ from torch.utils.data import get_worker_info
 from hyped.data.processors.statistics.base import BaseDataStatistic
 from hyped.data.processors.statistics.report import statistics_report_manager
 from hyped.utils.arrow import convert_features_to_arrow_schema
+from hyped.utils.feature_access import join_feature_mappings
+from hyped.utils.feature_checks import check_feature_equals
 from hyped.utils.utils import is_package_installed
 
 from .processors.base import BaseDataProcessor
@@ -76,9 +79,9 @@ class DataPipe(list):
         return (
             # check all processors of the pipe
             all(p.is_prepared for p in self)
-            and (self.in_features == self[0].in_features)
+            and check_feature_equals(self[0].in_features, self.in_features)
             and all(
-                p1.out_features == p2.in_features
+                check_feature_equals(p1.out_features, p2.in_features)
                 for p1, p2 in zip(self[:-1], self[1:])
             )
         )
@@ -98,11 +101,7 @@ class DataPipe(list):
         #       features processor
         # TODO: fix this by removing all features that are not
         #       in the output features
-        features = datasets.Features()
-        for p in self:
-            features.update(p.new_features)
-
-        return features
+        return reduce(join_feature_mappings, (p.new_features for p in self))
 
     @property
     def out_features(self) -> datasets.Features:
@@ -225,13 +224,18 @@ class DataPipe(list):
             out (datasets.Dataset|datasets.DatasetDict): processed dataset(s)
         """
 
-        kwargs.get("num_proc", None) or 1
-        # check if the data pipe contains any distributed components
-        if self._has_distributed_components:
-            raise RuntimeError(
-                "Cannot nest a distributed components in a non-distributed "
-                "data pipe on top level."
-            )
+        if is_package_installed("ray"):
+            from hyped.data.dist.pipe import DistributedDataPipe
+
+            # check if the data pipe contains any distributed components
+            if (
+                not isinstance(self, DistributedDataPipe)
+                and self._has_distributed_components
+            ):
+                raise RuntimeError(
+                    "Cannot nest distributed components in a non-distributed "
+                    "data pipe on top level."
+                )
 
         # TODO: test this preparation logic
         # get the dataset features

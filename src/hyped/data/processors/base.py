@@ -226,7 +226,7 @@ class BaseDataProcessor(BaseConfigurable[T], ABC):
             features (Features): complete output dataset features
         """
         if self.config.keep_input_features:
-            return Features(self.in_features | self.new_features)
+            return join_feature_mappings(self.in_features, self.new_features)
         else:
             return self.new_features
 
@@ -275,7 +275,7 @@ class BaseDataProcessor(BaseConfigurable[T], ABC):
                 index = [index[i] for i in src_index]
 
             # add input features to output batch
-            out_batch = dict(examples | out_batch)
+            out_batch = join_example_batches(examples, out_batch)
 
         # return output examples
         return (out_batch, index) if return_index else out_batch

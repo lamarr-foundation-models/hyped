@@ -225,6 +225,47 @@ class TestSimpleTree(BaseTestProcessGraph):
         return nx.DiGraph([(0, 1), (1, 2), (1, 3), (1, 4), (4, 5), (4, 6)])
 
 
+class TestSimpleNestedTree(BaseTestProcessGraph):
+    @pytest.fixture
+    def features(self) -> Features:
+        return Features({"x": Value("int32")})
+
+    @pytest.fixture
+    def pipe(self) -> DataPipe:
+        return DataPipe(
+            [
+                FormatFeatures(
+                    FormatFeaturesConfig(
+                        output_format={"y": "x", "z": "x"},
+                        keep_input_features=True,
+                    )
+                ),
+                DataPipe(
+                    [
+                        FormatFeatures(
+                            FormatFeaturesConfig(
+                                output_format={"x": "y", "a": "z"},
+                                keep_input_features=True,
+                            )
+                        )
+                    ]
+                ),
+            ]
+        )
+
+    @pytest.fixture
+    def num_layers(self) -> int:
+        return 4
+
+    @pytest.fixture
+    def max_width(self) -> int:
+        return 3
+
+    @pytest.fixture
+    def graph(self) -> nx.DiGraph:
+        return nx.DiGraph([(0, 1), (1, 2), (1, 3), (1, 4), (4, 5), (4, 6)])
+
+
 class TestTreeWithStatistic(BaseTestProcessGraph):
     @pytest.fixture
     def features(self) -> Features:

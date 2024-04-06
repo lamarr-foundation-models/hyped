@@ -127,6 +127,6 @@ class TestDistributedDataPipe(_TestDataPipe):
     def test_error_on_false_nested(self):
         with pytest.raises(
             RuntimeError,
-            match="Cannot nest a distributed components in a non-distributed ",
+            match="Cannot nest distributed components in a non-distributed ",
         ):
             DataPipe([DistributedDataPipe([])]).apply(data=None)
