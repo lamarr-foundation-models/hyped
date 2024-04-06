@@ -31,7 +31,14 @@ class ParallelFeaturesMixin(object):
     @property
     def is_prepared(self) -> bool:
         """Check if all data pipes are prepared and ready for execution"""
-        return all(pipe.is_prepared for pipe in self)
+        return all(
+            (pipe.is_prepared and (self.in_features == pipe.in_features))
+            for pipe in self
+        )
+
+    @property
+    def in_features(self) -> datasets.Features:
+        return self._in_features
 
     @property
     def new_features(self) -> datasets.Features:
@@ -214,4 +221,4 @@ class DistributedParallelDataPipe(ParallelFeaturesMixin, DistributedDataPipe):
         # get all outputs and merge them
         merged_out_batch = reduce(operator.or_, output_batches)
 
-        return merged_out_batch, index if return_index else merged_out_batch
+        return (merged_out_batch, index) if return_index else merged_out_batch

@@ -75,6 +75,7 @@ class DataPipe(list):
         return (
             # check all processors of the pipe
             all(p.is_prepared for p in self)
+            and (self.in_features == self[0].in_features)
             and all(
                 p1.out_features == p2.in_features
                 for p1, p2 in zip(self[:-1], self[1:])
