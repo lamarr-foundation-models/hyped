@@ -149,6 +149,14 @@ class DistributedDataPipe(DataPipe):
         assert not self.is_pool_ready
         self._pool = pool
 
+    def _spawn_actor(self, rank: int) -> ActorHandle:
+        """Spawn a single remote worker actor"""
+        return (
+            ray.remote(**self._options)
+            if len(self._options) > 0
+            else ray.remote
+        )(RemoteDataPipe).remote(list(self), rank)
+
     def _spawn_pool(self, num_actors: int) -> ActorPool:
         """Spawn all remote actors of the distributed data pipe
         including nested distributed data pipes.
@@ -179,14 +187,10 @@ class DistributedDataPipe(DataPipe):
 
         nested_pools = _spawn_nested_pools(self)
 
-        # remote worker spawn function
-        spawn = lambda rank: (
-            ray.remote(**self._options)
-            if len(self._options) > 0
-            else ray.remote
-        )(RemoteDataPipe).remote(list(self), rank)
         # set actor pool for distributed data pipe
-        self._set_pool(ActorPool([spawn(rank) for rank in range(num_actors)]))
+        self._set_pool(
+            ActorPool([self._spawn_actor(rank) for rank in range(num_actors)])
+        )
 
         # reserve all actors in the pool
         with self._pool.reserve_all() as reserved_actors:

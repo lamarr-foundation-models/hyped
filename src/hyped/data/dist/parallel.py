@@ -1,58 +1,29 @@
 import ray
 import datasets
 import operator
+import hyped.data.dist.pool
+from ray.actor import ActorHandle
 from hyped.data.pipe import DataPipe
-from .pipe import DistributedDataPipe
+from hyped.data.processors.base import BaseDataProcessor
+from hyped.utils.feature_checks import check_feature_equals
+from .pipe import DistributedDataPipe, RemoteDataPipe
 from .pool import ActorPool
 from functools import reduce
 from copy import deepcopy
 from typing import Any
 
 
-class DistributedParallelDataPipe(DataPipe):
-    """Distributed Parallel Data Pipe
+class ParallelFeaturesMixin(object):
+    """Parallle Features Mixin
 
-    Executes the list of distributed data pipes in parallel and
-    merges their outputs after all pipes have finished. The merging
-    is done in the order of the pipes in the input list. In case
-    of conflicting outputs, the one of the data pipe lastest in the
-    list is kept.
-
-    Arguments:
-        pipes (list[DistributedDataPipe]):
-            data pipes to be executed in parallel
-        num_proc_per_pipe (None | int):
-            number of workers to spawn per data pipe. By default this value
-            is taken from the `num_proc` argument to the `.apply` function.
+    Overwrite some functions of the `DataPipe` interface according
+    to the parallel workflow setup.
     """
 
-    def __init__(
-        self,
-        pipes: list[DistributedDataPipe],
-        num_proc_per_pipe: None | int = None,
-    ) -> None:
-        # initialize as a standard data pipe
-        super(DistributedParallelDataPipe, self).__init__(processors=pipes)
-        # spawn pools of distributed data pipes
-        if num_proc_per_pipe is not None:
-            for pipe in pipes:
-                if not pipe.is_pool_ready:
-                    pipe._spawn_pool(num_actors=num_proc_per_pipe)
-
     def prepare(self, features: datasets.Features) -> datasets.Features:
-        """Prepare all data pipes for execution
-
-        Arguments:
-            features (Features):
-                input dataset features available to the processor on execution
-
-        Returns:
-            out_features (Features):
-                dataset features after applying all data pipes
-        """
         # save a copy of the input features
         self._in_features = deepcopy(features)
-
+        # prepare the data processor
         return datasets.Features(
             reduce(operator.or_, (pipe.prepare(features) for pipe in self))
         )
@@ -79,6 +50,87 @@ class DistributedParallelDataPipe(DataPipe):
             reduce(operator.or_, (pipe.out_features for pipe in self))
         )
 
+
+class RemoteParallelDataPipe(ParallelFeaturesMixin, RemoteDataPipe):
+    """(Internal) Remote Parallel Data Pipe"""
+
+
+class DistributedParallelDataPipe(ParallelFeaturesMixin, DistributedDataPipe):
+    """Distributed Parallel Data Pipe
+
+    Executes the list of distributed data pipes in parallel and
+    merges their outputs after all pipes have finished. The merging
+    is done in the order of the pipes in the input list. In case
+    of conflicting outputs, the one of the data pipe lastest in the
+    list is kept.
+
+    Arguments:
+        processors (list[DataPipe | DistributedDataPipe | BaseDataProcessor]):
+            data processors to be executed in parallel. Note that these
+            can also be data pipes in case one wants to parallelize not
+            just a single processor.
+        num_proc_per_pipe (None | int):
+            number of workers to spawn per data pipe. By default this value
+            is taken from the `num_proc` argument to the `.apply` function.
+    """
+
+    def __init__(
+        self,
+        processors: list[DataPipe | DistributedDataPipe | BaseDataProcessor],
+        num_proc_per_pipe: None | int = None,
+    ) -> None:
+        # convert all processors to distributed data pipes
+        processors = [
+            proc
+            if isinstance(proc, DistributedDataPipe)
+            else DistributedDataPipe(list(proc))
+            if isinstance(proc, DataPipe)
+            else DistributedDataPipe([proc])
+            for proc in processors
+        ]
+        # initialize as a standard data pipe
+        super(DistributedParallelDataPipe, self).__init__(
+            processors=processors, num_proc=num_proc_per_pipe
+        )
+
+    def _spawn_actor(self, rank: int) -> ActorHandle:
+        """Spawn a single remote worker actor"""
+        return ray.remote(RemoteParallelDataPipe).remote(list(self), rank)
+
+    def prepare(self, features: datasets.Features) -> datasets.Features:
+        """Prepare all data pipes for execution
+
+        Arguments:
+            features (Features):
+                input dataset features available to the processor on execution
+
+        Returns:
+            out_features (Features):
+                dataset features after applying all data pipes
+        """
+
+        # prepare main process
+        out_features = ParallelFeaturesMixin.prepare(self, features)
+
+        if (hyped.data.dist.pool.rank is None) or (
+            hyped.data.dist.pool.rank == 0
+        ):
+            with self._pool.reserve_all() as reserved_actors:
+                # make sure all actors are reserved for preparation
+                assert len(reserved_actors) == self.num_proc
+
+                # prepare all actors
+                for actor_out_features in ray.get(
+                    reserved_actors.for_all_actors(
+                        lambda a: a.prepare.remote(features)
+                    )
+                ):
+                    assert check_feature_equals(
+                        actor_out_features, out_features
+                    )
+
+        return out_features
+
     def batch_process(
         self,
         examples: dict[str, list[Any]],
@@ -104,9 +156,9 @@ class DistributedParallelDataPipe(DataPipe):
         # make sure all pools are read
         if any(not pipe.is_pool_ready for pipe in self):
             raise RuntimeError(
-                "Actors of `DistributedDataPipe` not initialized. "
-                "This occurs when a standard `DataPipe` instance "
-                "contains a `DistributedDataPipe`."
+                "Actor Pool of `DistributedDataPipe` not initialized. "
+                "This might occur when a standard a `DistributedDataPipe` "
+                "is nested in a standard `DataPipe`."
             )
 
         futures = [None] * len(self)
@@ -163,20 +215,3 @@ class DistributedParallelDataPipe(DataPipe):
         merged_out_batch = reduce(operator.or_, output_batches)
 
         return merged_out_batch, index if return_index else merged_out_batch
-
-    def apply(
-        self,
-        data: (
-            datasets.Dataset
-            | datasets.DatasetDict
-            | datasets.IterableDataset
-            | datasets.IterableDatasetDict
-        ),
-        **kwargs,
-    ) -> (
-        datasets.Dataset
-        | datasets.DatasetDict
-        | datasets.IterableDataset
-        | datasets.IterableDatasetDict
-    ):
-        raise NotImplementedError()
