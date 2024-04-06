@@ -116,7 +116,7 @@ class BaseDatasetConsumer(ABC):
 
         else:
             # create a progress bar
-            pbar = self._new_tqdm(num_shards=data.n_shards)
+            pbar = self._tqdm(num_shards=data.n_shards)
             pbar.send(None)  # prepare the generator
             # consume all shards of the dataset
             for shard_done in self._consume_shards(data, range(data.n_shards)):

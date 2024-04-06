@@ -531,6 +531,7 @@ class DistributedMappedExamplesIterable(_BaseExamplesIterable):
         return DistributedMappedExamplesIterable(
             self.ex_iterable.shuffle_data_sources(generator),
             pipe=self.pipe,
+            unordered=self.unordered,
             batch_size=self.batch_size,
             drop_last_batch=self.drop_last_batch,
             formatting=self.formatting,
@@ -542,6 +543,7 @@ class DistributedMappedExamplesIterable(_BaseExamplesIterable):
         return DistributedMappedExamplesIterable(
             self.ex_iterable.shard_data_sources(worker_id, num_workers),
             pipe=self.pipe,
+            unordered=self.unordered,
             batch_size=self.batch_size,
             drop_last_batch=self.drop_last_batch,
             formatting=self.formatting,
