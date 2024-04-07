@@ -1,5 +1,4 @@
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 from datasets import Features
@@ -8,22 +7,17 @@ from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_access import (
-    FeatureKey,
-    get_feature_at_key,
-    get_value_at_key,
-)
 from hyped.utils.feature_checks import (
     INDEX_TYPES,
     raise_feature_is_sequence,
     raise_features_align,
 )
+from hyped.utils.feature_key import FeatureKey
 from hyped.utils.spans import make_spans_exclusive
 
 from .outputs import SpansOutputs
 
 
-@dataclass
 class LocalToGlobalOffsetsConfig(BaseDataProcessorConfig):
     """Offset Conversion Data Processor
 
@@ -45,8 +39,6 @@ class LocalToGlobalOffsetsConfig(BaseDataProcessorConfig):
             ]
         )
 
-    Type Identifier: `hyped.data.processors.spans.local_to_global_offsets`
-
     Attributes:
         local_offsets_begin (FeatureKey):
             feature containing begins of local offsets
@@ -67,13 +59,9 @@ class LocalToGlobalOffsetsConfig(BaseDataProcessorConfig):
             or not. Defaults to False.
     """
 
-    t: Literal[
-        "hyped.data.processors.spans.local_to_global_offsets"
-    ] = "hyped.data.processors.spans.local_to_global_offsets"
-
     # local offsets
-    local_offsets_begin: FeatureKey = None
-    local_offsets_end: FeatureKey = None
+    local_offsets_begin: FeatureKey
+    local_offsets_end: FeatureKey
     # map to global offset
     global_offsets_begin: None | FeatureKey = None
     local_to_global_mapping: None | FeatureKey = None
@@ -114,11 +102,11 @@ class LocalToGlobalOffsets(BaseDataProcessor[LocalToGlobalOffsetsConfig]):
             out (Features): global offset features
         """
         # make sure local offsets features exist
-        local_offsets_begin = get_feature_at_key(
-            features, self.config.local_offsets_begin
+        local_offsets_begin = self.config.local_offsets_begin.index_features(
+            features
         )
-        local_offsets_end = get_feature_at_key(
-            features, self.config.local_offsets_end
+        local_offsets_end = self.config.local_offsets_end.index_features(
+            features
         )
         # and are of the correct type
         raise_feature_is_sequence(
@@ -145,11 +133,11 @@ class LocalToGlobalOffsets(BaseDataProcessor[LocalToGlobalOffsetsConfig]):
                     "`local_to_global_mapping` argument not specified"
                 )
 
-            global_offsets_begin = get_feature_at_key(
-                features, self.config.global_offsets_begin
+            global_offsets_begin = (
+                self.config.global_offsets_begin.index_features(features)
             )
-            local_to_global_mapping = get_feature_at_key(
-                features, self.config.local_to_global_mapping
+            local_to_global_mapping = (
+                self.config.local_to_global_mapping.index_features(features)
             )
 
             raise_feature_is_sequence(
@@ -193,8 +181,8 @@ class LocalToGlobalOffsets(BaseDataProcessor[LocalToGlobalOffsetsConfig]):
 
         # get local offset spans
         local_offsets = zip(
-            get_value_at_key(example, self.config.local_offsets_begin),
-            get_value_at_key(example, self.config.local_offsets_end),
+            self.config.local_offsets_begin.index_example(example),
+            self.config.local_offsets_end.index_example(example),
         )
         # make offsets exclusive and convert to numpy array
         local_offsets = make_spans_exclusive(
@@ -220,10 +208,10 @@ class LocalToGlobalOffsets(BaseDataProcessor[LocalToGlobalOffsetsConfig]):
         else:
             # get global information
             global_offsets_begin = np.asarray(
-                get_value_at_key(example, self.config.global_offsets_begin)
+                self.config.global_offsets_begin.index_example(example)
             )
             local_to_global_mapping = np.asarray(
-                get_value_at_key(example, self.config.local_to_global_mapping)
+                self.config.local_to_global_mapping.index_example(example)
             )
 
         # compute offsets on global scale

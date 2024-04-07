@@ -1,16 +1,10 @@
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from datasets import Features
 
 from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
-)
-from hyped.utils.feature_access import (
-    FeatureKey,
-    get_feature_at_key,
-    get_value_at_key,
 )
 from hyped.utils.feature_checks import (
     INDEX_TYPES,
@@ -19,12 +13,12 @@ from hyped.utils.feature_checks import (
     raise_feature_is_sequence,
     raise_features_align,
 )
+from hyped.utils.feature_key import FeatureKey
 from hyped.utils.spans import compute_spans_overlap_matrix
 
 from .outputs import SpansOutputs
 
 
-@dataclass
 class CoveredIndexSpansConfig(BaseDataProcessorConfig):
     """Covered Index Span Data Processor Config
 
@@ -42,8 +36,6 @@ class CoveredIndexSpansConfig(BaseDataProcessorConfig):
     character-level span annotations to token-level spans, as
     typically required in data processing for squad-style
     Question Answering (QA) or Named-Entity-Recognition (NER).
-
-    Type Identifier: `hyped.data.processors.spans.covered_idx_spans`
 
     Attributes:
         queries_begin (FeatureKey):
@@ -64,16 +56,12 @@ class CoveredIndexSpansConfig(BaseDataProcessorConfig):
             inclusive or exclusive. Defaults to false.
     """
 
-    t: Literal[
-        "hyped.data.processors.spans.covered_idx_spans"
-    ] = "hyped.data.processors.spans.covered_idx_spans"
-
     # query spans
-    queries_begin: FeatureKey = None
-    queries_end: FeatureKey = None
+    queries_begin: FeatureKey
+    queries_end: FeatureKey
     # span sequence
-    spans_begin: FeatureKey = None
-    spans_end: FeatureKey = None
+    spans_begin: FeatureKey
+    spans_end: FeatureKey
     # whether the end coordinates are inclusive of exclusive
     is_queries_inclusive: bool = False
     is_spans_inclusive: bool = False
@@ -109,10 +97,10 @@ class CoveredIndexSpans(BaseDataProcessor[CoveredIndexSpansConfig]):
             out (Features): token-level span annotation features
         """
         # get all features
-        queries_begin = get_feature_at_key(features, self.config.queries_begin)
-        queries_end = get_feature_at_key(features, self.config.queries_end)
-        spans_begin = get_feature_at_key(features, self.config.spans_begin)
-        spans_end = get_feature_at_key(features, self.config.spans_end)
+        queries_begin = self.config.queries_begin.index_features(features)
+        queries_end = self.config.queries_end.index_features(features)
+        spans_begin = self.config.spans_begin.index_features(features)
+        spans_end = self.config.spans_end.index_features(features)
 
         # character spans must either be a sequence of
         # integers or an integer value
@@ -177,8 +165,8 @@ class CoveredIndexSpans(BaseDataProcessor[CoveredIndexSpansConfig]):
             out (dict[str, Any]): token-level span annotations
         """
         # get query spans
-        queries_begin = get_value_at_key(example, self.config.queries_begin)
-        queries_end = get_value_at_key(example, self.config.queries_end)
+        queries_begin = self.config.queries_begin.index_example(example)
+        queries_end = self.config.queries_end.index_example(example)
         # check if it is a single value
         is_value = isinstance(queries_begin, int)
         # pack value into list
@@ -189,8 +177,8 @@ class CoveredIndexSpans(BaseDataProcessor[CoveredIndexSpansConfig]):
         # build spans
         queries = zip(queries_begin, queries_end)
         spans = zip(
-            get_value_at_key(example, self.config.spans_begin),
-            get_value_at_key(example, self.config.spans_end),
+            self.config.spans_begin.index_example(example),
+            self.config.spans_end.index_example(example),
         )
 
         # for each query span find the  spans that it overlaps with

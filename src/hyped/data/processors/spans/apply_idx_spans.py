@@ -1,5 +1,4 @@
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 from datasets import Features
@@ -8,11 +7,6 @@ from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_access import (
-    FeatureKey,
-    get_feature_at_key,
-    get_value_at_key,
-)
 from hyped.utils.feature_checks import (
     INDEX_TYPES,
     check_feature_equals,
@@ -20,12 +14,12 @@ from hyped.utils.feature_checks import (
     raise_feature_is_sequence,
     raise_features_align,
 )
+from hyped.utils.feature_key import FeatureKey
 from hyped.utils.spans import make_spans_exclusive
 
 from .outputs import SpansOutputs
 
 
-@dataclass
 class ApplyIndexSpansConfig(BaseDataProcessorConfig):
     """Apply Index Spans Data Processor Config
 
@@ -60,15 +54,12 @@ class ApplyIndexSpansConfig(BaseDataProcessorConfig):
             inclusive or exclusive. Defaults to false.
     """
 
-    t: Literal[
-        "hyped.data.processors.spans.apply_idx_spans"
-    ] = "hyped.data.processors.spans.apply_idx_spans"
     # index spans
-    idx_spans_begin: FeatureKey = None
-    idx_spans_end: FeatureKey = None
+    idx_spans_begin: FeatureKey
+    idx_spans_end: FeatureKey
     # span sequence
-    spans_begin: FeatureKey = None
-    spans_end: FeatureKey = None
+    spans_begin: FeatureKey
+    spans_end: FeatureKey
     # whether the end coordinates are inclusive of exclusive
     is_idx_spans_inclusive: bool = False
     is_spans_inclusive: bool = False
@@ -102,12 +93,10 @@ class ApplyIndexSpans(BaseDataProcessor[ApplyIndexSpansConfig]):
         """
 
         # get all input features
-        idx_spans_begin = get_feature_at_key(
-            features, self.config.idx_spans_begin
-        )
-        idx_spans_end = get_feature_at_key(features, self.config.idx_spans_end)
-        spans_begin = get_feature_at_key(features, self.config.spans_begin)
-        spans_end = get_feature_at_key(features, self.config.spans_end)
+        idx_spans_begin = self.config.idx_spans_begin.index_features(features)
+        idx_spans_end = self.config.idx_spans_end.index_features(features)
+        spans_begin = self.config.spans_begin.index_features(features)
+        spans_end = self.config.spans_end.index_features(features)
 
         # index spans must either be a sequence of
         # integers or an integer value
@@ -162,10 +151,8 @@ class ApplyIndexSpans(BaseDataProcessor[ApplyIndexSpansConfig]):
         self, example: dict[str, Any], index: int, rank: int
     ) -> dict[str, Any]:
         # get index span values
-        idx_spans_begin = get_value_at_key(
-            example, self.config.idx_spans_begin
-        )
-        idx_spans_end = get_value_at_key(example, self.config.idx_spans_end)
+        idx_spans_begin = self.config.idx_spans_begin.index_example(example)
+        idx_spans_end = self.config.idx_spans_end.index_example(example)
         # check if it is a single value
         is_value = isinstance(idx_spans_begin, int)
 
@@ -176,8 +163,8 @@ class ApplyIndexSpans(BaseDataProcessor[ApplyIndexSpansConfig]):
         # get spans and offsets
         idx_spans = zip(idx_spans_begin, idx_spans_end)
         spans = zip(
-            get_value_at_key(example, self.config.spans_begin),
-            get_value_at_key(example, self.config.spans_end),
+            self.config.spans_begin.index_example(example),
+            self.config.spans_end.index_example(example),
         )
         # make spans exclusive
         idx_spans = make_spans_exclusive(
