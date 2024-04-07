@@ -1,6 +1,5 @@
-from dataclasses import dataclass
 from itertools import compress
-from typing import Any, Literal
+from typing import Any
 
 from datasets import Features, Sequence, Value
 
@@ -8,19 +7,14 @@ from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_access import (
-    FeatureKey,
-    get_feature_at_key,
-    get_value_at_key,
-)
 from hyped.utils.feature_checks import (
     get_sequence_feature,
     get_sequence_length,
     raise_feature_is_sequence,
 )
+from hyped.utils.feature_key import FeatureKey
 
 
-@dataclass
 class ApplyMaskConfig(BaseDataProcessorConfig):
     """Apply Mask Data Processor Config
 
@@ -36,12 +30,8 @@ class ApplyMaskConfig(BaseDataProcessorConfig):
             masked sequence will be stored under the dictionary key.
     """
 
-    t: Literal[
-        "hyped.data.processors.sequence.apply_mask"
-    ] = "hyped.data.processors.sequence.apply_mask"
-
-    mask: FeatureKey = None
-    sequences: dict[str, FeatureKey] = None
+    mask: FeatureKey
+    sequences: dict[str, FeatureKey]
 
 
 class ApplyMask(BaseDataProcessor[ApplyMaskConfig]):
@@ -61,7 +51,7 @@ class ApplyMask(BaseDataProcessor[ApplyMaskConfig]):
             out (Features): sequence features to overwrite
         """
         # check mask feature exists and is a sequence of booleans
-        mask = get_feature_at_key(features, self.config.mask)
+        mask = self.config.mask.index_features(features)
         raise_feature_is_sequence(self.config.mask, mask, Value("bool"))
         # get the length of the mask
         length = get_sequence_length(mask)
@@ -70,7 +60,7 @@ class ApplyMask(BaseDataProcessor[ApplyMaskConfig]):
         # check each sequence feature
         for name, key in self.config.sequences.items():
             # make sure it exists and is a sequence
-            seq = get_feature_at_key(features, key)
+            seq = key.index_features(features)
             raise_feature_is_sequence(key, seq)
             # it has to be of the same size as the mask
             if length != get_sequence_length(seq):
@@ -105,12 +95,12 @@ class ApplyMask(BaseDataProcessor[ApplyMaskConfig]):
         """
 
         # get the mask
-        mask = get_value_at_key(example, self.config.mask)
+        mask = self.config.mask.index_example(example)
 
         out = {}
         # apply mask to each sequence
         for name, key in self.config.sequences.items():
-            seq = get_value_at_key(example, key)
+            seq = key.index_example(example)
             # check length
             if len(seq) != len(mask):
                 raise ValueError(

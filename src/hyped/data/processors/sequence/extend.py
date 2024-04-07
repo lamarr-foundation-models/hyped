@@ -1,6 +1,5 @@
-from dataclasses import dataclass, field
 from itertools import chain
-from typing import Any, Literal
+from typing import Any
 
 from datasets import Features, Sequence
 
@@ -8,20 +7,15 @@ from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_access import (
-    FeatureKey,
-    get_feature_at_key,
-    get_value_at_key,
-)
 from hyped.utils.feature_checks import (
     get_sequence_feature,
     get_sequence_length,
     raise_feature_is_sequence,
     raise_object_matches_feature,
 )
+from hyped.utils.feature_key import FeatureKey
 
 
-@dataclass
 class ExtendSequenceConfig(BaseDataProcessorConfig):
     """Extend Sequence Data Processor Config
 
@@ -35,14 +29,10 @@ class ExtendSequenceConfig(BaseDataProcessorConfig):
         prepend (list[Any]): values to prepend to the sequence
     """
 
-    t: Literal[
-        "hyped.data.processors.sequence.extend"
-    ] = "hyped.data.processors.sequence.extend"
-
-    sequence: FeatureKey = None
+    sequence: FeatureKey
     output: str = "output"
-    append: list[Any] = field(default_factory=list)
-    prepend: list[Any] = field(default_factory=list)
+    append: list[Any] = []
+    prepend: list[Any] = []
 
 
 class ExtendSequence(BaseDataProcessor[ExtendSequenceConfig]):
@@ -54,10 +44,9 @@ class ExtendSequence(BaseDataProcessor[ExtendSequenceConfig]):
 
     def map_features(self, features: Features) -> Features:
         # check feature
-        sequence = get_feature_at_key(features, self.config.sequence)
+        sequence = self.config.sequence.index_features(features)
         raise_feature_is_sequence(self.config.sequence, sequence)
         # get item feature type and length of the sequence
-        sequence = features[self.config.sequence]
         feature = get_sequence_feature(sequence)
         length = get_sequence_length(sequence)
         # make sure append and prepend values match the feature type
@@ -77,7 +66,7 @@ class ExtendSequence(BaseDataProcessor[ExtendSequenceConfig]):
         self, example: dict[str, Any], index: int, rank: int
     ) -> dict[str, Any]:
         # get sequence and add new values
-        sequence = get_value_at_key(example, self.config.sequence)
+        sequence = self.config.sequence.index_example(example)
         sequence = chain(self.config.prepend, sequence, self.config.append)
         # return updated sequence
         return {self.config.output: list(sequence)}
