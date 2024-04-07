@@ -1,5 +1,3 @@
-from dataclasses import dataclass, field
-
 import pytest
 from datasets import Features, Sequence, Value
 
@@ -7,11 +5,10 @@ from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_access import FeatureKey
+from hyped.utils.feature_key import FeatureKey
 from tests.data.processors.base import BaseTestDataProcessor
 
 
-@dataclass
 class ConstantDataProcessorConfig(BaseDataProcessorConfig):
     """Configuration for `ConstantDataProcessor`
 
@@ -34,7 +31,6 @@ class ConstantDataProcessor(BaseDataProcessor[ConstantDataProcessorConfig]):
         return {self.config.name: self.config.value}
 
 
-@dataclass
 class ConstantGeneratorDataProcessorConfig(ConstantDataProcessorConfig):
     """Configuration for `ConstantGeneratorDataProcessor`"""
 
@@ -56,65 +52,52 @@ class ConstantGeneratorDataProcessor(ConstantDataProcessor):
 
 class TestDataProcessorConfig(object):
     def test_extract_feature_keys(self):
-        @dataclass
         class Config(BaseDataProcessorConfig):
             # simple keys
             a: FeatureKey = "a"
             b: FeatureKey = "b"
             c: None | FeatureKey = None
             # list and dict of keys
-            l: list[FeatureKey] = field(  # noqa: E741
-                default_factory=lambda: ["1", "2", "3"]
-            )
-            ol: None | list[FeatureKey] = field(
-                default_factory=lambda: ["4", "5", "6"]
-            )
-            d: dict[str, FeatureKey] = field(
-                default_factory=lambda: {"key1": "d1", "key2": "d2"}
-            )
-            od: dict[str, FeatureKey] = field(
-                default_factory=lambda: {"key1": "d3", "key2": "d4"}
-            )
+            l: list[FeatureKey] = ["1", "2", "3"]  # noqa: E741
+            ol: None | list[FeatureKey] = ["4", "5", "6"]
+            d: dict[str, FeatureKey] = {"key1": "d1", "key2": "d2"}
+            od: dict[str, FeatureKey] = {"key1": "d3", "key2": "d4"}
             # nested variations
-            ll: list[list[FeatureKey]] = field(
-                default_factory=lambda: [["11", "12"], ["21", "22", "23"]]
-            )
-            ld: list[dict[str, FeatureKey]] = field(
-                default_factory=lambda: [{"k1": "k1"}, {"k2": "k2"}]
-            )
-            dl: dict[str, list[FeatureKey]] = field(
-                default_factory=lambda: {"k1": ["h", "i"], "k2": ["j"]}
-            )
+            ll: list[list[FeatureKey]] = [["11", "12"], ["21", "22", "23"]]
+            ld: list[dict[str, FeatureKey]] = [{"k1": "k1"}, {"k2": "k2"}]
+            dl: dict[str, list[FeatureKey]] = {"k1": ["h", "i"], "k2": ["j"]}
             # no feature keys
             x: str = "x"
-            y: None | int = "y"
-            z: tuple[str] = field(default_factory=lambda: ("z",))
+            y: None | int = 1
+            z: tuple[str] = ("z",)
 
         assert set(list(Config().required_feature_keys)) == {
-            "a",
-            "b",
-            "1",
-            "2",
-            "3",
-            "4",
-            "5",
-            "6",
-            "d1",
-            "d2",
-            "d3",
-            "d4",
-            "11",
-            "12",
-            "21",
-            "22",
-            "23",
-            "k1",
-            "k2",
-            "h",
-            "i",
-            "j",
+            FeatureKey("a"),
+            FeatureKey("b"),
+            FeatureKey("1"),
+            FeatureKey("2"),
+            FeatureKey("3"),
+            FeatureKey("4"),
+            FeatureKey("5"),
+            FeatureKey("6"),
+            FeatureKey("d1"),
+            FeatureKey("d2"),
+            FeatureKey("d3"),
+            FeatureKey("d4"),
+            FeatureKey("11"),
+            FeatureKey("12"),
+            FeatureKey("21"),
+            FeatureKey("22"),
+            FeatureKey("23"),
+            FeatureKey("k1"),
+            FeatureKey("k2"),
+            FeatureKey("h"),
+            FeatureKey("i"),
+            FeatureKey("j"),
         }
-        assert "c" in set(list(Config(c="c").required_feature_keys))
+        assert FeatureKey("c") in set(
+            list(Config(c="c").required_feature_keys)
+        )
 
 
 class BaseTestSetup(BaseTestDataProcessor):
@@ -164,6 +147,7 @@ class TestDataProcessorWithOutputFormat(BaseTestSetup):
             keep_input_features=keep_inputs,
             output_format={"custom_A": "A"},
         )
+        print(c.output_format)
         p = ConstantDataProcessor(c)
         assert not p.is_prepared
         # return processor

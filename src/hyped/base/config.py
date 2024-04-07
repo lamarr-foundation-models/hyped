@@ -17,7 +17,8 @@ class _register_model_meta(register_meta_mixin, ModelMetaclass):
 
 
 class BaseConfig(Registrable, BaseModel, metaclass=_register_model_meta):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    # validate default argument
+    model_config = ConfigDict(validate_default=True)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert configuration object to dictionary"""

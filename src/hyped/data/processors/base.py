@@ -1,35 +1,17 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, fields
 from itertools import chain
-from types import GeneratorType, UnionType
-from typing import (
-    Any,
-    ClassVar,
-    Generator,
-    GenericAlias,
-    Literal,
-    TypeVar,
-    Union,
-    get_args,
-    get_origin,
-)
+from types import GeneratorType
+from typing import Any, ClassVar, Generator, Iterable, TypeVar
 
 from datasets import Features
+from datasets.iterable_dataset import _batch_to_examples
 
 from hyped.base.config import BaseConfig, BaseConfigurable
-from hyped.utils.feature_access import (
-    FeatureKey,
-    FeatureKeyCollection,
-    collect_features,
-    collect_values,
-    is_feature_key,
-    iter_batch,
-)
+from hyped.utils.feature_key import FeatureKey, FeatureKeyCollection
 
 
-@dataclass
 class BaseDataProcessorConfig(BaseConfig):
     """Base Data Processor Config
 
@@ -47,114 +29,37 @@ class BaseDataProcessorConfig(BaseConfig):
     # refer to output features and not required input features
     _IGNORE_KEYS_FROM_FIELDS: ClassVar[list[str]] = ["output_format"]
 
-    t: Literal["hyped.data.processor.base"] = "hyped.data.processor.base"
     # attributes
     keep_input_features: bool = True
-    output_format: None | dict[str, FeatureKeyCollection] = None
-
-    def __post_init__(self) -> None:
-        if (self.output_format is not None) and not isinstance(
-            self.output_format, dict
-        ):
-            raise TypeError(
-                "Output format must be a dictionary, got %s"
-                % str(self.output_format)
-            )
+    output_format: None | FeatureKeyCollection = None
 
     @property
-    def required_feature_keys(self) -> Generator[FeatureKey, None, None]:
+    def required_feature_keys(self) -> Iterable[FeatureKey]:
         """Iterator over all feature keys required for execution of the
         corresponding data processor.
-
-        By default, the required feature keys are identified by the type
-        annotations of the dataclass. That is every field that is annotated
-        as a feature key is extracted in this routine. This also includes
-        lists and dictionaries of feature keys.
         """
 
-        def _yield_from_collection(
-            t: type[FeatureKeyCollection], v: FeatureKeyCollection
-        ):
-            # handle optionals
-            if isinstance(t, UnionType) or (get_origin(t) is Union):
-                args = get_args(t)
+        def _iter_feature_keys(col):
+            if isinstance(col, FeatureKey):
+                yield col
 
-                if (
-                    (len(args) == 2)
-                    and (type(None) in args)
-                    and (v is not None)
-                ):
-                    if v is None:
-                        return
+            if isinstance(col, (list, tuple)):
+                yield from chain.from_iterable(map(_iter_feature_keys, col))
 
-                    t = args[0] if args[1] is None else args[1]
+            if isinstance(col, FeatureKeyCollection):
+                yield from col.feature_keys
 
-            # direct feature key mentions
-            if t is FeatureKey:
-                yield v
-
-            # feature collection
-            elif t is FeatureKeyCollection:
-                if isinstance(v, list) and (len(v) > 0):
-                    yield from _yield_from_collection(
-                        list[
-                            FeatureKey
-                            if all(map(is_feature_key, v))
-                            else FeatureKeyCollection
-                        ],
-                        v,
-                    )
-                elif isinstance(v, dict) and (len(v) > 0):
-                    yield from _yield_from_collection(
-                        dict[
-                            str,
-                            FeatureKey
-                            if all(map(is_feature_key, v.values()))
-                            else FeatureKeyCollection,
-                        ],
-                        v,
-                    )
-                else:
-                    yield from _yield_from_collection(FeatureKey, v)
-
-            # nested feature key mentions
-            elif isinstance(t, GenericAlias):
-                origin = get_origin(t)
-                args = get_args(t)
-
-                # list of keys
-                if origin is list:
-                    if len(args) > 1:
-                        raise NotImplementedError
-                    yield from chain.from_iterable(
-                        (_yield_from_collection(args[0], i) for i in v)
-                    )
-                # dict of keys
-                elif origin is dict:
-                    yield from chain.from_iterable(
-                        (
-                            _yield_from_collection(args[1], i)
-                            for i in v.values()
-                        )
-                    )
-
-        # iterate over fields and get their type annotations
-        for field in fields(self):
-            # ignore selected fields
-            if field.name in type(self)._IGNORE_KEYS_FROM_FIELDS:
-                continue
-
-            # resolve string type annotations which occur when
-            # using __future__.annotations
-            if isinstance(field.type, str):
-                field.type = eval(
-                    field.type, getattr(self, "__globals__", None), None
+            if isinstance(col, dict):
+                yield from chain.from_iterable(
+                    map(_iter_feature_keys, col.values())
                 )
 
-            # yield feature keys present in field
-            yield from _yield_from_collection(
-                field.type, getattr(self, field.name)
+        yield from chain.from_iterable(
+            map(
+                _iter_feature_keys,
+                (getattr(self, k) for k in self.model_fields.keys()),
             )
+        )
 
 
 T = TypeVar("T", bound=BaseDataProcessorConfig)
@@ -228,8 +133,8 @@ class BaseDataProcessor(BaseConfigurable[T], ABC):
             and isinstance(self.config.output_format, dict)
             and (len(self.config.output_format) > 0)
         ):
-            self._new_features = collect_features(
-                self._raw_features, self.config.output_format
+            self._new_features = self.config.output_format.collect_features(
+                self._raw_features
             )
             assert isinstance(self._new_features, Features)
         # return output features
@@ -349,14 +254,7 @@ class BaseDataProcessor(BaseConfigurable[T], ABC):
         )
 
         if self.config.output_format is not None:
-            out_batch = {
-                key: [
-                    # collect values for each example in the batch
-                    collect_values(example, collection)
-                    for example in iter_batch(out_batch)
-                ]
-                for key, collection in self.config.output_format.items()
-            }
+            out_batch = self.config.output_format.collect_batch(out_batch)
 
         if self.config.keep_input_features:
             # check if the src index is not range(n)
@@ -406,7 +304,9 @@ class BaseDataProcessor(BaseConfigurable[T], ABC):
         out_batch = {key: [] for key in self.raw_features.keys()}
         src_index = []
         # process each example one-by-one
-        for j, i, x in zip(range(len(index)), index, iter_batch(examples)):
+        for j, i, x in zip(
+            range(len(index)), index, _batch_to_examples(examples)
+        ):
             y = self.process(x, index=i, rank=rank)
 
             # handle different output types

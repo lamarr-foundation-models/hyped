@@ -372,6 +372,33 @@ class TestFeatureKey(object):
 
 
 class TestFeatureKeyCollection(object):
+    def test_basics(self):
+        col = FeatureKeyCollection(
+            {
+                "a": FeatureKey("a"),
+                "b": "b",
+                "c": ("x", "y"),
+                "d": [FeatureKey("a"), "b"],
+                "e": {"x": "x", "y": FeatureKey("y")},
+            }
+        )
+
+        assert isinstance(col["a"], FeatureKey)
+        assert isinstance(col["b"], FeatureKey)
+        assert isinstance(col["c"], FeatureKey)
+        assert all(isinstance(k, FeatureKey) for k in col["d"])
+        assert all(isinstance(k, FeatureKey) for k in col["e"].values())
+
+        col["x"] = "x"
+        col["y"] = ("x", "y")
+        col["z"] = ["x", "y"]
+        col["k"] = {"x": "x", "y": FeatureKey("y")}
+
+        assert isinstance(col["x"], FeatureKey)
+        assert isinstance(col["y"], FeatureKey)
+        assert all(isinstance(k, FeatureKey) for k in col["z"])
+        assert all(isinstance(k, FeatureKey) for k in col["k"].values())
+
     @pytest.mark.parametrize(
         "keys,expected_collection",
         [
@@ -483,3 +510,21 @@ class TestFeatureKeyCollection(object):
     )
     def test_collect_values(self, collection, example, expected_values):
         assert collection.collect_values(example) == expected_values
+
+    @pytest.mark.parametrize(
+        "collection,batch,expected_values",
+        [
+            (
+                FeatureKeyCollection({"a": FeatureKey("x")}),
+                {"x": list(range(10))},
+                {"a": list(range(10))},
+            ),
+            (
+                FeatureKeyCollection({"a": {"b": FeatureKey("x")}}),
+                {"x": list(range(10))},
+                {"a": [{"b": i} for i in range(10)]},
+            ),
+        ],
+    )
+    def test_collect_batch(self, collection, batch, expected_values):
+        assert collection.collect_batch(batch) == expected_values

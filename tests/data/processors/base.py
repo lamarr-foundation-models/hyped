@@ -71,6 +71,8 @@ class BaseTestDataProcessor(ABC):
 
         # check new and output features
         if expected_out_features is not None:
+            print(processor.new_features)
+            print(expected_out_features)
             assert processor.new_features == expected_out_features
 
             if processor.config.keep_input_features:

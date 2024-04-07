@@ -4,6 +4,9 @@ from itertools import chain
 from typing import Any, Iterable
 
 from datasets.features.features import Features, FeatureType, Sequence
+from datasets.iterable_dataset import _batch_to_examples
+from pydantic import GetCoreSchemaHandler
+from pydantic_core import CoreSchema, core_schema
 
 from hyped.utils.feature_checks import (
     check_feature_equals,
@@ -26,6 +29,9 @@ class FeatureKey(tuple[str | int | slice]):
         return FeatureKey(*key)
 
     def __new__(self, *key: str | int | slice) -> None:
+        if len(key) == 1 and isinstance(key[0], (tuple)):
+            return FeatureKey.from_tuple(key[0])
+
         if len(key) > 0 and not isinstance(key[0], str):
             raise ValueError(
                 "First entry of a feature key must be a string, got %s."
@@ -46,6 +52,14 @@ class FeatureKey(tuple[str | int | slice]):
 
     def __repr__(self) -> str:
         return str(self)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        return core_schema.no_info_after_validator_function(
+            cls, handler(str | tuple)
+        )
 
     @property
     def is_simple(self) -> bool:
@@ -152,8 +166,8 @@ class FeatureKey(tuple[str | int | slice]):
                 # check key entry is present in features
                 if key_entry not in features.keys():
                     raise KeyError(
-                        "Key `%s` not present in feature mapping at "
-                        "path `%s`, valid keys are %s"
+                        "Key `%s` not present in features at `%s`, "
+                        "valid keys are %s"
                         % (key_entry, self[:i], list(features.keys()))
                     )
                 # get the feature at the key entry
@@ -444,7 +458,48 @@ _FeatureKeyCollectionValue = (
 )
 
 
+def _convert_to_feature_keys(
+    col: _FeatureKeyCollectionValue | str | tuple[str | int | slice],
+) -> _FeatureKeyCollectionValue:
+    if isinstance(col, dict):
+        return {k: _convert_to_feature_keys(v) for k, v in col.items()}
+    if isinstance(col, list):
+        return list(map(_convert_to_feature_keys, col))
+    if isinstance(col, tuple):
+        return FeatureKey.from_tuple(col)
+    if not isinstance(col, FeatureKey):
+        return FeatureKey(col)
+
+    raise ValueError()
+
+
+def _collect_from_example(
+    col: _FeatureKeyCollectionValue, example: dict[str, Any]
+) -> Any:
+    if isinstance(col, FeatureKey):
+        return col.index_example(example)
+    if isinstance(col, dict):
+        return {
+            key: _collect_from_example(val, example)
+            for key, val in col.items()
+        }
+    if isinstance(col, list):
+        return [_collect_from_example(x, example) for x in col]
+
+    raise ValueError()
+
+
 class FeatureKeyCollection(dict[str, _FeatureKeyCollectionValue]):
+    def __init__(
+        self, collection: dict[str, _FeatureKeyCollectionValue] = {}
+    ) -> None:
+        dict.__init__(self, _convert_to_feature_keys(collection))
+
+    def __setitem__(self, idx: str, val: _FeatureKeyCollectionValue) -> None:
+        super(FeatureKeyCollection, self).__setitem__(
+            idx, _convert_to_feature_keys(val)
+        )
+
     @classmethod
     def from_feature_keys(
         self, feature_keys: Iterable[FeatureKey]
@@ -494,6 +549,12 @@ class FeatureKeyCollection(dict[str, _FeatureKeyCollectionValue]):
 
     def __repr__(self) -> str:
         return str(self)
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, source_type: Any, handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        return core_schema.no_info_after_validator_function(cls, handler(dict))
 
     @property
     def feature_keys(self) -> Iterable[FeatureKey]:
@@ -558,12 +619,28 @@ class FeatureKeyCollection(dict[str, _FeatureKeyCollectionValue]):
                 collected values in the format of the feature key collection
         """
 
-        def _collect(v):
-            if isinstance(v, FeatureKey):
-                return v.index_example(example)
-            if isinstance(v, dict):
-                return FeatureKeyCollection.collect_values(v, example)
-            if isinstance(v, list):
-                return list(map(_collect, v))
+        return _collect_from_example(self, example)
 
-        return {key: _collect(val) for key, val in self.items()}
+    def collect_batch(
+        self, batch: dict[str, list[Any]]
+    ) -> dict[str, list[Any]]:
+        """Collect all values from a batch of examples requested by the
+        feature collection and maintain the format of the collection
+
+        Arguments:
+            batch (dict[str, list[Any]]):
+                example from which to collect the requested values
+
+        Returns:
+            collected_values (dict[str, list[Any]]):
+                collected values in the format of the feature key collection
+        """
+
+        collected_batch = {key: [] for key in self.keys()}
+        for example in _batch_to_examples(batch):
+            for key, col in self.items():
+                collected_batch[key].append(
+                    _collect_from_example(col, example)
+                )
+
+        return collected_batch
