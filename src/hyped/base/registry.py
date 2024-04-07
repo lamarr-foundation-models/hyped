@@ -7,13 +7,13 @@ from datasets.packaged_modules import _hash_python_lines
 
 
 class Registrable(ABC):
-    """Base Class for Registrable Types
+    """Base Class for Registrable Types"""
 
-    Class Attributes:
-        t (str): type identifier
-    """
-
-    t: ClassVar[str] = "hyped.base.register.registrable"
+    @classmethod
+    @property
+    def type_id(cls) -> str:
+        """Type identifier"""
+        return ".".join([cls.__module__, cls.__name__])
 
     @classmethod
     @property
@@ -70,7 +70,7 @@ class TypeRegistry(object):
 
         h = T.type_hash
         # update registers
-        self.global_hash_register[T.t] = h
+        self.global_hash_register[T.type_id] = h
         self.global_type_register[h] = T
         # add type hash to all base nodes of the type
         for b in [b.type_hash for b in bases if issubclass(b, Registrable)]:
@@ -117,7 +117,7 @@ class TypeRegistry(object):
         }
         # build up-to-date sub-tree hash register
         subtree = list(self.hash_tree_bfs(root=root.type_hash))
-        return {self.global_type_register[h].t: h for h in subtree} | {
+        return {self.global_type_register[h].type_id: h for h in subtree} | {
             inv_hash_register[h]: h
             for h in filter(inv_hash_register.__contains__, subtree)
         }
@@ -223,11 +223,7 @@ class RootedTypeRegistryView(object):
 default_registry = TypeRegistry()
 
 
-class register_types(ABCMeta):
-    """meta-class to automatically register sub-types of a specific
-    type in a type registry
-    """
-
+class register_meta_mixin:
     _registry: ClassVar[TypeRegistry] = default_registry
 
     def __new__(cls, name, bases, attrs) -> None:
@@ -242,7 +238,14 @@ class register_types(ABCMeta):
         return RootedTypeRegistryView(root=cls, registry=cls._registry)
 
 
-class RegisterTypes(Registrable, metaclass=register_types):
+class register_type_meta(register_meta_mixin, ABCMeta):
+    """meta-class to automatically register sub-types of a specific
+    type in a type registry
+    """
+
+
+# TODO: rename to RegisterTypeMixin
+class RegisterTypes(Registrable, metaclass=register_type_meta):
     """Base class that automatically registers sub-types to the
     default type registry
     """

@@ -2,21 +2,29 @@ from __future__ import annotations
 
 import json
 from abc import ABC, abstractmethod
-from dataclasses import asdict, dataclass
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, TypeVar
+
+from pydantic import BaseModel, ConfigDict
+from pydantic._internal._model_construction import ModelMetaclass
 
 from .auto import BaseAutoClass
 from .generic import solve_typevar
-from .registry import RegisterTypes
+from .registry import RegisterTypes, Registrable, register_meta_mixin
 
 
-@dataclass
-class BaseConfig(RegisterTypes):
-    t: Literal["hyped.base.config.config"] = "hyped.base.config.config"
+class _register_model_meta(register_meta_mixin, ModelMetaclass):
+    pass
+
+
+class BaseConfig(Registrable, BaseModel, metaclass=_register_model_meta):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
     def to_dict(self) -> dict[str, Any]:
         """Convert configuration object to dictionary"""
-        return asdict(self) | {"__type_hash__": type(self).type_hash}
+        return self.model_dump() | {
+            "type_id": type(self).type_id,
+            "__type_hash__": type(self).type_hash,
+        }
 
     def to_json(self, **kwargs) -> str:
         """Serialize config object into json format
@@ -44,7 +52,7 @@ class BaseConfig(RegisterTypes):
         # pop type hash and type identifier as they are meta
         # information and not actual fields needing to be set
         h = dct.pop("__type_hash__", None)
-        t = dct.pop("t", None)
+        t = dct.pop("type_id", None)
 
         # make sure hashes match up
         if (h is not None) and (h != cls.type_hash):
@@ -52,10 +60,10 @@ class BaseConfig(RegisterTypes):
                 "Type hash in dict doesn't match type hash of config"
             )
         # make sure type identifiers match up
-        if (t is not None) and (t != cls.t):
+        if (t is not None) and (t != cls.type_id):
             raise ValueError(
-                "Type identifier in dict doesn't match type identifier"
-                "of config: %s != %s" % (t, cls.t)
+                "Type identifier in dict doesn't match type identifier "
+                "of config: %s != %s" % (t, cls.type_id)
             )
         # instantiate config
         return cls(**dct)
@@ -95,9 +103,9 @@ class AutoConfig(BaseAutoClass[BaseConfig]):
             h = dct.get("__type_hash__")
             T = cls.type_registry.get_type_by_hash(h)
 
-        elif "t" in dct:
+        elif "type_id" in dct:
             # get type from type id
-            t = dct.get("t")
+            t = dct.get("type_id")
             T = cls.type_registry.get_type_by_t(t)
 
         else:
@@ -183,12 +191,14 @@ class BaseConfigurable(Generic[U], RegisterTypes, ABC):
 
     @classmethod
     @property
-    def t(cls) -> str:
+    def type_id(cls) -> str:
         """Type identifier used in type registry. Identifier is build
         from configuration type identifier by appending `.impl`.
         """
+        # TODO: what should the relation between the type ids of a
+        #       configurable and it's config be
         # specify registry type identifier based on config type identifier
-        return "%s.impl" % cls.config_type.t
+        return "%s.impl" % cls.config_type.type_id
 
     @classmethod
     @abstractmethod
@@ -214,7 +224,7 @@ class BaseAutoConfigurable(BaseAutoClass[V]):
     def from_config(cls, config: BaseConfig) -> V:
         # build type identifier of configurable corresponding
         # to the config
-        t = "%s.impl" % config.t
+        t = "%s.impl" % config.type_id
         T = cls.type_registry.get_type_by_t(t)
         # create instance
         return T.from_config(config)
