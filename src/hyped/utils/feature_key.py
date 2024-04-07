@@ -6,6 +6,7 @@ from typing import Any, Iterable
 from datasets.features.features import Features, FeatureType, Sequence
 
 from hyped.utils.feature_checks import (
+    check_feature_equals,
     get_sequence_feature,
     get_sequence_length,
     raise_feature_equals,
@@ -434,3 +435,135 @@ class FeatureKey(tuple[str | int | slice]):
         return map(
             FeatureKey.from_tuple, _iter_keys_in_features(features, max_depth)
         )
+
+
+_FeatureKeyCollectionValue = (
+    FeatureKey
+    | list["_FeatureKeyCollectionValue"]
+    | dict[str, "_FeatureKeyCollectionValue"]
+)
+
+
+class FeatureKeyCollection(dict[str, _FeatureKeyCollectionValue]):
+    @classmethod
+    def from_feature_keys(
+        self, feature_keys: Iterable[FeatureKey]
+    ) -> FeatureKeyCollection:
+        """Build a feature collection from a list of feature keys.
+
+        The resulting feature collection matches the format of the
+        feature keys, i.e. the feature keys apply to the collection.
+
+        Take for example to following feature keys:
+
+            FeatureKey("A", "X")
+            FeatureKey("A", "Y")
+
+        Then the resulting feature collection would be:
+
+            FeatureKeyCollection({"A": {"X": ("A", "X"), "Y": ("A", "Y")}})
+
+        Arguments:
+            keys (Iterable[FeatureKey]):
+                iterable of feature keys to build a collection from
+
+        Returns:
+            collection (FeatureCollection):
+                resulting feature collection
+        """
+
+        collection = FeatureKeyCollection()
+
+        for key in feature_keys:
+            if not key.is_simple:
+                raise NotImplementedError()
+
+            c = collection
+            # add all sub-entries
+            for key_entry in key[:-1]:
+                if key_entry not in c:
+                    c[key_entry] = {}
+                c = c[key_entry]
+            # set key
+            c[key[-1]] = key
+
+        return collection
+
+    def __str__(self) -> str:
+        return "FeatureKeyCollection(%s)" % str(dict(self))
+
+    def __repr__(self) -> str:
+        return str(self)
+
+    @property
+    def feature_keys(self) -> Iterable[FeatureKey]:
+        def _iter_feature_keys(col: _FeatureKeyCollectionValue):
+            if isinstance(col, FeatureKey):
+                yield col
+            elif isinstance(col, dict):
+                yield from chain.from_iterable(
+                    map(_iter_feature_keys, col.values())
+                )
+            elif isinstance(col, list):
+                yield from chain.from_iterable(map(_iter_feature_keys, col))
+
+        yield from _iter_feature_keys(self)
+
+    def collect_features(self, features: Features) -> Features:
+        """Collect all features requested in the feature collection
+        and maintain the format of the collection
+
+        Arguments:
+            features (Features):
+                source feature mapping from which to collect the requested
+                features
+
+        Returns:
+            collected_features (Features):
+                collected features in the format of the feature key collection
+        """
+
+        def _collect(v):
+            if isinstance(v, FeatureKey):
+                return v.index_features(features)
+            if isinstance(v, dict):
+                return FeatureKeyCollection.collect_features(v, features)
+            if isinstance(v, list):
+                assert len(v) > 0
+                # collect all features in specified in the list
+                collected_features = map(_collect, v)
+                f = next(collected_features)
+                # make sure the feature types match
+                for ff in collected_features:
+                    if not check_feature_equals(f, ff):
+                        raise TypeError(
+                            "Expected all items of a sequence to be of the "
+                            "same feature type, got %s != %s"
+                            % (str(f), str(ff))
+                        )
+                return Sequence(f, length=len(v))
+
+        return Features({key: _collect(val) for key, val in self.items()})
+
+    def collect_values(self, example: dict[str, Any]) -> dict[str, Any]:
+        """Collect all values requested by the feature collection
+        and maintain the format of the collection
+
+        Arguments:
+            example (dict[str, Any]):
+                example from which to collect the requested values
+
+        Returns:
+            collected_values (dict[str, Any]):
+                collected values in the format of the feature key collection
+        """
+
+        def _collect(v):
+            if isinstance(v, FeatureKey):
+                return v.index_example(example)
+            if isinstance(v, dict):
+                return FeatureKeyCollection.collect_values(v, example)
+            if isinstance(v, list):
+                return list(map(_collect, v))
+
+        return {key: _collect(val) for key, val in self.items()}
