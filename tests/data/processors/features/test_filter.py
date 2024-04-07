@@ -223,20 +223,11 @@ class TestRemoveFeatures(BaseTestFilterFeatures):
         return request.param
 
 
-class TestErrorOnInvalidConfig(BaseTestDataProcessor):
-    @pytest.fixture
-    def in_features(self):
-        return FEATURES
+class TestErrorOnInvalidConfig(object):
+    def test_error_on_no_filter_specified(self):
+        with pytest.raises(ValueError):
+            FilterFeaturesConfig()
 
-    @pytest.fixture(
-        params=[
-            FilterFeaturesConfig(),
+    def test_error_on_both_filter_specified(self):
+        with pytest.raises(ValueError):
             FilterFeaturesConfig(keep=["X"], remove=["Y"]),
-        ]
-    )
-    def processor(self, request):
-        return FilterFeatures(request.param)
-
-    @pytest.fixture
-    def expected_err_on_prepare(self):
-        return ValueError

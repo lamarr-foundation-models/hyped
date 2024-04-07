@@ -17,6 +17,57 @@ from hyped.utils.feature_checks import (
 )
 
 
+def _iter_keys_in_features(
+    features: FeatureType, max_depth: int, max_seq_len_to_unpack: int
+) -> Iterable[tuple[str | int | slice]]:
+    if max_depth == 0:
+        # trivial case, maximum depth reached
+        yield tuple()
+
+    elif isinstance(features, (dict, Features)):
+        # recursivly flatten all features in mapping and
+        # prefix each sub-key with the current key of the mapping
+        yield from chain.from_iterable(
+            (
+                map(
+                    (k,).__add__,
+                    _iter_keys_in_features(
+                        v, max_depth - 1, max_seq_len_to_unpack
+                    ),
+                )
+                for k, v in features.items()
+            )
+        )
+
+    elif isinstance(features, Sequence):
+        length = get_sequence_length(features)
+        # only unpack sequences of fixed length
+        if 0 < length < max_seq_len_to_unpack:
+            yield from (
+                (i,) + sub_key
+                for sub_key in _iter_keys_in_features(
+                    get_sequence_feature(features),
+                    max_depth - 1,
+                    max_seq_len_to_unpack,
+                )
+                for i in range(length)
+            )
+
+        else:
+            yield from map(
+                (slice(None),).__add__,
+                _iter_keys_in_features(
+                    get_sequence_feature(features),
+                    max_depth - 1,
+                    max_seq_len_to_unpack,
+                ),
+            )
+
+    else:
+        # all other feature types are considered primitive/unpackable
+        yield tuple()
+
+
 class FeatureKey(tuple[str | int | slice]):
     """Feature Key used to index features and examples
 
@@ -37,6 +88,13 @@ class FeatureKey(tuple[str | int | slice]):
                 "First entry of a feature key must be a string, got %s."
                 % repr(key[0])
             )
+
+        for key_entry in key:
+            if not isinstance(key_entry, (str, int, slice)):
+                raise TypeError(
+                    "Feature key entries must be either str, int or slice "
+                    "objects, got %s" % key_entry
+                )
 
         return tuple.__new__(FeatureKey, key)
 
@@ -404,50 +462,9 @@ class FeatureKey(tuple[str | int | slice]):
             keys (Iterable[FeatureKey]): iterator over keys
         """
 
-        def _iter_keys_in_features(features, max_depth):
-            if max_depth == 0:
-                # trivial case, maximum depth reached
-                yield tuple()
-
-            elif isinstance(features, (dict, Features)):
-                # recursivly flatten all features in mapping and
-                # prefix each sub-key with the current key of the mapping
-                yield from chain.from_iterable(
-                    (
-                        map(
-                            (k,).__add__,
-                            _iter_keys_in_features(v, max_depth - 1),
-                        )
-                        for k, v in features.items()
-                    )
-                )
-
-            elif isinstance(features, Sequence):
-                length = get_sequence_length(features)
-                # only unpack sequences of fixed length
-                if 0 < length < max_seq_len_to_unpack:
-                    yield from (
-                        (i,) + sub_key
-                        for sub_key in _iter_keys_in_features(
-                            get_sequence_feature(features), max_depth - 1
-                        )
-                        for i in range(length)
-                    )
-
-                else:
-                    yield from map(
-                        (slice(None),).__add__,
-                        _iter_keys_in_features(
-                            get_sequence_feature(features), max_depth - 1
-                        ),
-                    )
-
-            else:
-                # all other feature types are considered primitive/unpackable
-                yield tuple()
-
         return map(
-            FeatureKey.from_tuple, _iter_keys_in_features(features, max_depth)
+            FeatureKey.from_tuple,
+            _iter_keys_in_features(features, max_depth, max_seq_len_to_unpack),
         )
 
 
@@ -530,12 +547,11 @@ class FeatureKeyCollection(dict[str, _FeatureKeyCollectionValue]):
         collection = FeatureKeyCollection()
 
         for key in feature_keys:
-            if not key.is_simple:
-                raise NotImplementedError()
-
             c = collection
             # add all sub-entries
             for key_entry in key[:-1]:
+                if not isinstance(key_entry, str):
+                    raise NotImplementedError()
                 if key_entry not in c:
                     c[key_entry] = {}
                 c = c[key_entry]

@@ -5,6 +5,7 @@ from hyped.data.processors.features.flatten import (
     FlattenFeatures,
     FlattenFeaturesConfig,
 )
+from hyped.utils.feature_key import FeatureKey
 from tests.data.processors.base import BaseTestDataProcessor
 
 
@@ -86,15 +87,15 @@ class TestFlattenSelectedFeatures(BaseTestFlattenFeatures):
     def expected_out_features(self, processor):
         features = Features()
 
-        if "X" in processor.config.to_flatten:
+        if FeatureKey("X") in processor.config.to_flatten:
             features["X"] = Value("int32")
 
-        if "Y" in processor.config.to_flatten:
+        if FeatureKey("Y") in processor.config.to_flatten:
             features["Y.0"] = Value("int32")
             features["Y.1"] = Value("int32")
             features["Y.2"] = Value("int32")
 
-        if "A" in processor.config.to_flatten:
+        if FeatureKey("A") in processor.config.to_flatten:
             features["A.x"] = Value("int32")
             features["A.y.0"] = Value("int32")
             features["A.y.1"] = Value("int32")
@@ -105,15 +106,15 @@ class TestFlattenSelectedFeatures(BaseTestFlattenFeatures):
     def expected_out_batch(self, in_batch, processor):
         out_batch = {}
 
-        if "X" in processor.config.to_flatten:
+        if FeatureKey("X") in processor.config.to_flatten:
             out_batch["X"] = in_batch["X"]
 
-        if "Y" in processor.config.to_flatten:
+        if FeatureKey("Y") in processor.config.to_flatten:
             out_batch["Y.0"] = [x for x, _, _ in in_batch["Y"]]
             out_batch["Y.1"] = [x for _, x, _ in in_batch["Y"]]
             out_batch["Y.2"] = [x for _, _, x in in_batch["Y"]]
 
-        if "A" in processor.config.to_flatten:
+        if FeatureKey("A") in processor.config.to_flatten:
             out_batch["A.x"] = [item["x"] for item in in_batch["A"]]
             out_batch["A.y.0"] = [item["y"][0] for item in in_batch["A"]]
             out_batch["A.y.1"] = [item["y"][1] for item in in_batch["A"]]

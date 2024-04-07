@@ -1,25 +1,17 @@
-import warnings
-from dataclasses import dataclass
-from typing import Literal
-
 from datasets import Features
+from pydantic import Field
 
 from hyped.data.processors.features.format import (
     FormatFeatures,
     FormatFeaturesConfig,
 )
-from hyped.utils.feature_access import (
+from hyped.utils.feature_key import (
     FeatureKey,
-    build_collection_from_keys,
-    get_feature_at_key,
-    get_value_at_key,
-    iter_keys_in_features,
-    key_cutoff_at_slice,
-    raise_is_simple_key,
+    FeatureKeyCollection,
+    _iter_keys_in_features,
 )
 
 
-@dataclass
 class FlattenFeaturesConfig(FormatFeaturesConfig):
     """Flatten Dataset Features Processor Config
 
@@ -42,14 +34,14 @@ class FlattenFeaturesConfig(FormatFeaturesConfig):
             length exceeds this threshold, the sequence will not be unpacked
     """
 
-    t: Literal[
-        "hyped.data.processors.features.flatten"
-    ] = "hyped.data.processors.features.flatten"
-
     to_flatten: None | list[FeatureKey] = None
     delimiter: str = ":"
     depth: int = -1
     max_seq_length_to_unpack: int = 8
+
+    output_format: None | FeatureKeyCollection = Field(
+        default=None, init_var=False
+    )
 
 
 class FlattenFeatures(FormatFeatures):
@@ -80,49 +72,37 @@ class FlattenFeatures(FormatFeatures):
         Returns:
             out (Features): flattened feature mapping
         """
-        # overwriting feature mapping in config
-        if len(self.config.output_format) != 0:
-            warnings.warn(
-                "Feature mapping is not None and will be overwritten",
-                UserWarning,
-            )
-
-        if self.config.to_flatten is not None:
-            # make sure all keys are simple
-            for k in self.config.to_flatten:
-                raise_is_simple_key(k)
 
         # get features to flatten, default to all features
         # in the feature mapping
         to_flatten = (
             self.config.to_flatten
             if self.config.to_flatten is not None
-            else list(features.keys())
+            else list(map(FeatureKey, features.keys()))
         )
 
-        to_flatten = [k if isinstance(k, tuple) else (k,) for k in to_flatten]
-
-        collection = build_collection_from_keys(to_flatten)
+        collection = FeatureKeyCollection.from_feature_keys(to_flatten)
 
         for key in to_flatten:
-            # get the feature to flatten and the key collection
+            # get the feature to flatten
+            feature = key.index_features(features)
+
+            # the key collection
             # to add the flattened features into
-            feature = get_feature_at_key(features, key)
-            sub_collection = get_value_at_key(collection, key[:-1])
+            sub_collection = key[:-1].index_example(collection)
             assert key[-1] in sub_collection
             # flatten features
             flat_collection = {
-                self.config.delimiter.join(map(str, k)): key[:-1] + k
+                self.config.delimiter.join(map(str, key[-1:] + k)): FeatureKey(
+                    key + k
+                )
                 for k in map(
-                    (key[-1],).__add__,
-                    map(
-                        # TODO: can we flatten after slice?
-                        key_cutoff_at_slice,
-                        iter_keys_in_features(
-                            feature,
-                            self.config.depth,
-                            self.config.max_seq_length_to_unpack,
-                        ),
+                    # TODO: can we flatten after slice?
+                    FeatureKey.cutoff_at_slice,
+                    _iter_keys_in_features(
+                        feature,
+                        self.config.depth,
+                        self.config.max_seq_length_to_unpack,
                     ),
                 )
             }
