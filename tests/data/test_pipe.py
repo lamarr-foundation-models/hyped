@@ -30,7 +30,29 @@ from tests.data.processors.test_base import (
                 ]
             ),
             [FeatureKey("x"), FeatureKey("y")],
-        )
+        ),
+        (
+            DataPipe(
+                [
+                    FormatFeatures(
+                        FormatFeaturesConfig(
+                            output_format={
+                                "X": "x",
+                                "Y": "y",
+                            }
+                        )
+                    ),
+                    FormatFeatures(
+                        FormatFeaturesConfig(
+                            output_format={
+                                "Z": "Y",
+                            }
+                        ),
+                    ),
+                ]
+            ),
+            [FeatureKey("x"), FeatureKey("y")],
+        ),
     ],
 )
 def test_required_feature_keys(pipe, required_keys):

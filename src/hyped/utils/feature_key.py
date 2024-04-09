@@ -11,6 +11,7 @@ from pydantic_core import CoreSchema, core_schema
 
 from hyped.utils.feature_checks import (
     check_feature_equals,
+    check_feature_is_sequence,
     get_sequence_feature,
     get_sequence_length,
     raise_feature_equals,
@@ -258,12 +259,19 @@ class FeatureKey(tuple[str | int | slice]):
         # full key is simple
         return self
 
-    def index_features(self, features: Features) -> FeatureType:
+    def index_features(
+        self, features: Features, raise_error: bool = True
+    ) -> None | FeatureType:
         """Get the feature type of the feature indexed by the key.
 
         Arguments:
             features (Features):
                 The feature mapping to index with the given key.
+            raise_error (bool):
+                Flag indicating whether to throw an error when
+                the key doesn't match the nested structure of the
+                features dictionary. If set to false, the function
+                returns None when an error would be raised.
 
         Returns:
             feature (FeatureType):
@@ -272,21 +280,36 @@ class FeatureKey(tuple[str | int | slice]):
 
         for i, key_entry in enumerate(self):
             if isinstance(key_entry, str):
-                # check feature type
-                raise_feature_equals(self[:i], features, [Features, dict])
-                # check key entry is present in features
-                if key_entry not in features.keys():
-                    raise KeyError(
-                        "Key `%s` not present in features at `%s`, "
-                        "valid keys are %s"
-                        % (key_entry, self[:i], list(features.keys()))
-                    )
+                if raise_error:
+                    # check feature type
+                    raise_feature_equals(self[:i], features, [Features, dict])
+                    # check key entry is present in features
+                    if key_entry not in features.keys():
+                        raise KeyError(
+                            "Key `%s` not present in features at `%s`, "
+                            "valid keys are %s"
+                            % (key_entry, self[:i], list(features.keys()))
+                        )
+                else:
+                    # make sure the feature is a dictionary and the key entry
+                    # is a valid dictionary key
+                    if (
+                        not check_feature_equals(features, [Features, dict])
+                        or key_entry not in features.keys()
+                    ):
+                        # return None when an error would be raised
+                        return None
+
                 # get the feature at the key entry
                 features = features[key_entry]
 
             elif isinstance(key_entry, (int, slice)):
                 # check feature type
-                raise_feature_is_sequence(self[:i], features)
+                if raise_error:
+                    raise_feature_is_sequence(self[:i], features)
+                elif not check_feature_is_sequence(self[:i], features):
+                    return None
+
                 # get sequence feature and length
                 length = get_sequence_length(features)
                 features = get_sequence_feature(features)
@@ -294,11 +317,14 @@ class FeatureKey(tuple[str | int | slice]):
                 if isinstance(key_entry, int) and (
                     (length == 0) or ((length > 0) and (key_entry >= length))
                 ):
-                    raise IndexError(
-                        "Index `%i` out of bounds for sequence of "
-                        "length `%i` of feature at key %s"
-                        % (key_entry, length, self[:i])
-                    )
+                    if raise_error:
+                        raise IndexError(
+                            "Index `%i` out of bounds for sequence of "
+                            "length `%i` of feature at key %s"
+                            % (key_entry, length, self[:i])
+                        )
+                    else:
+                        return None
 
                 if isinstance(key_entry, slice):
                     if length >= 0:
@@ -309,8 +335,14 @@ class FeatureKey(tuple[str | int | slice]):
                     # get features and pack them into a sequence of
                     # appropriate length
                     key = tuple.__new__(FeatureKey, self[i + 1 :])
-                    return Sequence(
-                        key.index_features(features), length=length
+                    feature = key.index_features(
+                        features, raise_error=raise_error
+                    )
+
+                    return (
+                        Sequence(feature, length=length)
+                        if feature is not None
+                        else None
                     )
 
         return features

@@ -114,8 +114,28 @@ class DataPipe(list):
     @property
     def required_feature_keys(self) -> set[FeatureKey]:
         """Iterable over all required feature keys"""
-        # TODO: remove required feature keys generated within the data pipe
-        return reduce(set.union, (proc.required_feature_keys for proc in self))
+
+        if not self.is_prepared:
+            raise RuntimeError("Data pipe not prepared")
+
+        required_keys = set()
+        new_features = datasets.Features()
+
+        for proc in self:
+            # update required feature keys with all feature keys that are not
+            # present in the features up to this point
+            required_keys.update(
+                {
+                    k
+                    for k in proc.required_feature_keys
+                    if k.index_features(new_features, raise_error=False)
+                    is None
+                }
+            )
+            # keep track of features created within the data pipe
+            new_features = join_features(new_features, proc.new_features)
+
+        return required_keys
 
     def batch_process(
         self,
