@@ -36,6 +36,12 @@ class StatisticsReportStorage(object):
         # create unique id for instance comparissons accross processes
         self._uuid = uuid.uuid4()
 
+    @property
+    def manager(self) -> SyncManager:
+        """Multiprocessing manager instance"""
+        global _manager
+        return _manager
+
     def register(self, key: str, init_val: Any) -> None:
         """Register a statistic key to the storage
 
