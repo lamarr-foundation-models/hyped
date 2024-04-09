@@ -1,7 +1,6 @@
 import multiprocessing as mp
 from collections import Counter
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from datasets import ClassLabel, Features, Value
 
@@ -10,30 +9,22 @@ from hyped.data.processors.statistics.base import (
     BaseDataStatisticConfig,
 )
 from hyped.data.processors.statistics.report import StatisticsReportStorage
-from hyped.utils.feature_access import (
-    FeatureKey,
-    batch_get_value_at_key,
-    get_feature_at_key,
-)
 from hyped.utils.feature_checks import (
     INT_TYPES,
     UINT_TYPES,
     check_feature_equals,
     raise_feature_equals,
-    raise_feature_exists,
 )
+from hyped.utils.feature_key import FeatureKey
 
 # TODO: write tests for discrete sequence value histogram
 
 
-@dataclass
 class DiscreteHistogramConfig(BaseDataStatisticConfig):
     """Discrete Histogram Data Statistic Config
 
     Build a histogram of a given discrete value feature,
     e.g. ClassLabel or string.
-
-    Type Identifier: "hyped.data.processors.statistics.value.disc_histogram"
 
     Attributes:
         statistic_key (str):
@@ -44,11 +35,7 @@ class DiscreteHistogramConfig(BaseDataStatisticConfig):
             histogram
     """
 
-    t: Literal[
-        "hyped.data.processors.statistics.value.discrete_histogram"
-    ] = "hyped.data.processors.statistics.value.discrete_histogram"
-
-    feature_key: FeatureKey = None
+    feature_key: FeatureKey
 
 
 class DiscreteHistogram(
@@ -62,7 +49,7 @@ class DiscreteHistogram(
 
     def _map_values(self, vals: list[Any]) -> list[Any]:
         # get feature
-        feature = get_feature_at_key(self.in_features, self.config.feature_key)
+        feature = self.config.feature_key.index_features(self.in_features)
         # check if feature is a class label
         if check_feature_equals(feature, ClassLabel):
             # map class ids to names
@@ -99,10 +86,9 @@ class DiscreteHistogram(
         Arguments:
             features (Features): input dataset features
         """
-        raise_feature_exists(self.config.feature_key, features)
         raise_feature_equals(
             self.config.feature_key,
-            get_feature_at_key(features, self.config.feature_key),
+            self.config.feature_key.index_features(features),
             INT_TYPES + UINT_TYPES + [ClassLabel, Value("string")],
         )
 
@@ -122,7 +108,7 @@ class DiscreteHistogram(
         Returns:
             hist (dict[Any, str]): histogram of given batch of examples
         """
-        x = batch_get_value_at_key(examples, self.config.feature_key)
+        x = self.config.feature_key.index_features(examples)
         return self._compute_histogram(x)
 
     def compute(

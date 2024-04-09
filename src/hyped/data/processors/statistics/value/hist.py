@@ -1,6 +1,5 @@
 import multiprocessing as mp
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 from datasets import Features
@@ -11,27 +10,19 @@ from hyped.data.processors.statistics.base import (
     BaseDataStatisticConfig,
 )
 from hyped.data.processors.statistics.report import StatisticsReportStorage
-from hyped.utils.feature_access import (
-    FeatureKey,
-    batch_get_value_at_key,
-    get_feature_at_key,
-)
 from hyped.utils.feature_checks import (
     FLOAT_TYPES,
     INT_TYPES,
     UINT_TYPES,
     raise_feature_equals,
-    raise_feature_exists,
 )
+from hyped.utils.feature_key import FeatureKey
 
 
-@dataclass
 class HistogramConfig(BaseDataStatisticConfig):
     """Histogram Data Statistic Config
 
     Build a histogram of a given value feature.
-
-    Type Identifier: "hyped.data.processors.statistics.value.histogram"
 
     Attributes:
         statistic_key (str):
@@ -45,15 +36,11 @@ class HistogramConfig(BaseDataStatisticConfig):
         num_bins (int): number of bins of the histogram
     """
 
-    t: Literal[
-        "hyped.data.processors.statistics.value.histogram"
-    ] = "hyped.data.processors.statistics.value.histogram"
-
-    feature_key: FeatureKey = None
+    feature_key: FeatureKey
     # histogram range and number of bins
-    low: float = None
-    high: float = None
-    num_bins: int = None
+    low: float
+    high: float
+    num_bins: int
 
 
 class Histogram(BaseDataStatistic[HistogramConfig, list[int]]):
@@ -99,10 +86,9 @@ class Histogram(BaseDataStatistic[HistogramConfig, list[int]]):
         Arguments:
             features (Features): input dataset features
         """
-        raise_feature_exists(self.config.feature_key, features)
         raise_feature_equals(
             self.config.feature_key,
-            get_feature_at_key(features, self.config.feature_key),
+            self.config.feature_key.index_features(features),
             INT_TYPES + UINT_TYPES + FLOAT_TYPES,
         )
 
@@ -123,7 +109,7 @@ class Histogram(BaseDataStatistic[HistogramConfig, list[int]]):
             bin_ids (NDArray): array of integers containing the bin ids
             bin_counts (NDArray): array of integers containing the bin counts
         """
-        x = batch_get_value_at_key(examples, self.config.feature_key)
+        x = self.config.feature_key.index_batch(examples)
         return self._compute_histogram(np.asarray(x))
 
     def compute(

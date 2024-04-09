@@ -1,34 +1,27 @@
 import warnings
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 from datasets import Features
 from numpy.typing import NDArray
+from pydantic import Field
 
 from hyped.data.processors.statistics.value.hist import (
     Histogram,
     HistogramConfig,
 )
-from hyped.utils.feature_access import (
-    batch_get_value_at_key,
-    get_feature_at_key,
-)
 from hyped.utils.feature_checks import (
-    raise_feature_exists,
+    get_sequence_length,
     raise_feature_is_sequence,
 )
 
 # TODO: write tests for sequence length histogram
 
 
-@dataclass
 class SequenceLengthHistogramConfig(HistogramConfig):
     """Sequence Length Histogram Data Statistic Config
 
     Build a histogram over the lengths of a given sequence feature.
-
-    Type Identifier: "hyped.data.processors.statistics.value.seq_len_histogram"
 
     Attributes:
         statistic_key (str):
@@ -42,19 +35,20 @@ class SequenceLengthHistogramConfig(HistogramConfig):
             threshold will be truncated for the statistics computation
     """
 
-    t: Literal[
-        "hyped.data.processors.statistics.sequence.seq_len_histogram"
-    ] = "hyped.data.processors.statistics.sequence.seq_len_histogram"
+    max_length: int
 
-    max_length: int = None
+    low: float = Field(default=0, init_var=False)
+    high: float = Field(default=0, init_var=False)
+    num_bins: float = Field(default=0, init_var=False)
 
-    def __post_init__(self):
+    def model_post_init(self, __context) -> None:
         # set values
         self.low = 0
-        self.high = self.max_length
-        self.num_bins = self.max_length
-        # call super function
-        super(SequenceLengthHistogramConfig, self).__post_init__()
+        self.high = self.num_bins = self.max_length
+
+        super(SequenceLengthHistogramConfig, self).__model_post_init__(
+            __context
+        )
 
 
 class SequenceLengthHistogram(Histogram):
@@ -78,11 +72,10 @@ class SequenceLengthHistogram(Histogram):
             features (Features): input dataset features
         """
         # make sure feature exists and is a sequence
-        raise_feature_exists(self.config.feature_key, features)
-        feature = get_feature_at_key(features, self.config.feature_key)
+        feature = self.config.feature_key.index_features(features)
         raise_feature_is_sequence(self.config.feature_key, feature)
         # warn about fixed length sequences
-        if feature.length != -1:
+        if get_sequence_length(feature) != -1:
             warnings.warn(
                 "Computing sequence length histogram of fixed length sequence",
                 UserWarning,
@@ -106,7 +99,7 @@ class SequenceLengthHistogram(Histogram):
             bin_ids (NDArray): array of integers containing the bin ids
             bin_counts (NDArray): array of integers containing the bin counts
         """
-        x = batch_get_value_at_key(examples, self.config.feature_key)
+        x = self.config.feature_key.index_batch(examples)
         lengths = list(map(len, x))
 
         return self._compute_histogram(np.asarray(lengths))
