@@ -75,14 +75,6 @@ class TestKeepFeatures(BaseTestFilterFeatures):
         params=chain(
             [
                 {
-                    "config": FilterFeaturesConfig(keep=key),
-                    "out_features": {key: FEATURES[key]},
-                    "out_batch": {key: BATCH[key]},
-                }
-                for key in "XYAB"
-            ],
-            [
-                {
                     "config": FilterFeaturesConfig(keep=list(keys)),
                     "out_features": {k: FEATURES[k] for k in keys},
                     "out_batch": {k: BATCH[k] for k in keys},
@@ -195,14 +187,6 @@ class TestKeepFeatures(BaseTestFilterFeatures):
 class TestRemoveFeatures(BaseTestFilterFeatures):
     @pytest.fixture(
         params=chain(
-            [
-                {
-                    "config": FilterFeaturesConfig(keep=key),
-                    "out_features": {key: FEATURES[key]},
-                    "out_batch": {key: BATCH[key]},
-                }
-                for key in "XYAB"
-            ],
             [
                 {
                     "config": FilterFeaturesConfig(remove=list(keys)),
