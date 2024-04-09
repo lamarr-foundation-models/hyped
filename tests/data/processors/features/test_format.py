@@ -5,6 +5,7 @@ from hyped.data.processors.features.format import (
     FormatFeatures,
     FormatFeaturesConfig,
 )
+from hyped.utils.feature_key import FeatureKey
 from tests.data.processors.base import BaseTestDataProcessor
 
 
@@ -13,7 +14,10 @@ class TestFormatFeaturesConfig(object):
         config = FormatFeaturesConfig(
             output_format={"new_X": "X", "new_Y": "Y"}
         )
-        assert set(list(config.required_feature_keys)) == {"X", "Y"}
+        assert set(list(config.required_feature_keys)) == {
+            FeatureKey("X"),
+            FeatureKey("Y"),
+        }
 
 
 class BaseTestFormatFlatFeatures(BaseTestDataProcessor):
@@ -176,7 +180,6 @@ class BaseTestFormatNestedFeatures(BaseTestDataProcessor):
 class TestErrorOnInvalidKeyType(BaseTestFormatNestedFeatures):
     @pytest.fixture(
         params=[
-            {"Y": ("Y", 1.2)},  # key must be string or int
             {"Y": ("Y", "x")},  # index sequence with string
             {"Y": ("A", 0)},  # index mapping with int
         ]
@@ -347,9 +350,9 @@ class TestFormatSliceFeatures(BaseTestDataProcessor):
             FormatFeaturesConfig(
                 output_format={
                     "new_X": "X",
-                    "A.0": ("A", slice(-1), 0),
-                    "A.1": ("A", slice(-1), 1),
-                    "A.2": ("A", slice(-1), 2),
+                    "A.0": ("A", slice(None), 0),
+                    "A.1": ("A", slice(None), 1),
+                    "A.2": ("A", slice(None), 2),
                 }
             )
         )

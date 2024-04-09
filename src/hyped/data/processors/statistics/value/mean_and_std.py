@@ -3,7 +3,7 @@ from __future__ import annotations
 import multiprocessing as mp
 from dataclasses import dataclass
 from math import sqrt
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 from datasets import Features
@@ -12,18 +12,13 @@ from hyped.data.processors.statistics.base import (
     BaseDataStatistic,
     BaseDataStatisticConfig,
 )
-from hyped.utils.feature_access import (
-    FeatureKey,
-    batch_get_value_at_key,
-    get_feature_at_key,
-)
 from hyped.utils.feature_checks import (
     FLOAT_TYPES,
     INT_TYPES,
     UINT_TYPES,
     raise_feature_equals,
-    raise_feature_exists,
 )
+from hyped.utils.feature_key import FeatureKey
 
 
 @dataclass
@@ -80,14 +75,11 @@ class MeanAndStdTuple(object):
         return MeanAndStdTuple(m_new, s_new, n1 + n2)
 
 
-@dataclass
 class MeanAndStdConfig(BaseDataStatisticConfig):
     """Mean and Standard Deviation Data Statistic Config
 
     Compute the mean and standard deviation of a given
     feature.
-
-    Type Identifier: "hyped.data.processors.statistics.value.mean_and_std"
 
     Attributes:
         statistic_key (str):
@@ -98,11 +90,7 @@ class MeanAndStdConfig(BaseDataStatisticConfig):
             mean and standard deviation of
     """
 
-    t: Literal[
-        "hyped.data.processors.statistics.value.mean_and_std"
-    ] = "hyped.data.processors.statistics.value.mean_and_std"
-
-    feature_key: FeatureKey = None
+    feature_key: FeatureKey
 
 
 class MeanAndStd(BaseDataStatistic[MeanAndStdConfig, MeanAndStdTuple]):
@@ -134,10 +122,9 @@ class MeanAndStd(BaseDataStatistic[MeanAndStdConfig, MeanAndStdTuple]):
         Arguments:
             features (Features): input dataset features
         """
-        raise_feature_exists(self.config.feature_key, features)
         raise_feature_equals(
             self.config.feature_key,
-            get_feature_at_key(features, self.config.feature_key),
+            self.config.feature_key.index_features(features),
             INT_TYPES + UINT_TYPES + FLOAT_TYPES,
         )
 
@@ -158,7 +145,7 @@ class MeanAndStd(BaseDataStatistic[MeanAndStdConfig, MeanAndStdTuple]):
             ext (MeanAndStdTuple): mean and standard deviation
         """
         # get batch of values from examples
-        x = batch_get_value_at_key(examples, self.config.feature_key)
+        x = self.config.feature_key.index_batch(examples)
         x = np.asarray(x)
         # compute mean and standard deviation and pack together
         return MeanAndStdTuple(x.mean(), x.std(), len(x))

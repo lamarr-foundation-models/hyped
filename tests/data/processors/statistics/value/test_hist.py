@@ -43,5 +43,5 @@ class TestHistogram(BaseTestDataStatistic):
 
     @pytest.fixture
     def expected_stat_value(self, in_batch, statistic):
-        vals = np.asarray(in_batch["A"]) - statistic.config.low
+        vals = np.asarray(in_batch["A"]) - int(statistic.config.low)
         return np.bincount(vals, minlength=statistic.config.num_bins).tolist()

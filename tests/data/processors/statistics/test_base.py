@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Any
 
 import pytest
@@ -13,7 +12,6 @@ from tests.data.processors.statistics.base import BaseTestDataStatistic
 from tests.data.processors.statistics.test_report import is_lock_acquired
 
 
-@dataclass
 class ConstantStatisticConfig(BaseDataStatisticConfig):
     statistic_key: str = "constant"
     init_val: int = 0

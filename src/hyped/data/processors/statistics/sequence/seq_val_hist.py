@@ -1,6 +1,5 @@
-from dataclasses import dataclass
 from itertools import chain
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 from datasets import Features
@@ -10,25 +9,15 @@ from hyped.data.processors.statistics.value.hist import (
     Histogram,
     HistogramConfig,
 )
-from hyped.utils.feature_access import (
-    batch_get_value_at_key,
-    get_feature_at_key,
-)
-from hyped.utils.feature_checks import (
-    raise_feature_exists,
-    raise_feature_is_sequence,
-)
+from hyped.utils.feature_checks import raise_feature_is_sequence
 
 # TODO: write tests for sequence value histogram
 
 
-@dataclass
 class SequenceValueHistogramConfig(HistogramConfig):
     """Sequence Value Histogram Data Statistic Config
 
     Build a histogram of the values of a given sequence feature.
-
-    Type Identifier: "hyped.data.processors.statistics.value.seq_val_histogram"
 
     Attributes:
         statistic_key (str):
@@ -41,10 +30,6 @@ class SequenceValueHistogramConfig(HistogramConfig):
         high (float): upper end of the range of the histogram
         num_bins (int): number of bins of the histogram
     """
-
-    t: Literal[
-        "hyped.data.processors.statistics.sequence.seq_val_histogram"
-    ] = "hyped.data.processors.statistics.sequence.seq_val_histogram"
 
 
 class SequenceValueHistogram(Histogram):
@@ -68,11 +53,9 @@ class SequenceValueHistogram(Histogram):
             features (Features): input dataset features
         """
         # make sure feature exists and is a sequence
-        raise_feature_exists(self.config.feature_key, features)
-        feature = get_feature_at_key(features, self.config.feature_key)
         raise_feature_is_sequence(
             self.config.feature_key,
-            feature,
+            self.config.feature_key.index_features(features),
         )
 
     def extract(
@@ -93,7 +76,7 @@ class SequenceValueHistogram(Histogram):
             bin_ids (NDArray): array of integers containing the bin ids
             bin_counts (NDArray): array of integers containing the bin counts
         """
-        x = batch_get_value_at_key(examples, self.config.feature_key)
+        x = self.config.feature_key.index_batch(examples)
         x = np.asarray(list(chain.from_iterable(x)))
 
         return self._compute_histogram(x)

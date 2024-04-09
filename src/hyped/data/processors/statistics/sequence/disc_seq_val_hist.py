@@ -1,6 +1,5 @@
-from dataclasses import dataclass
 from itertools import chain
-from typing import Any, Literal
+from typing import Any
 
 from datasets import ClassLabel, Features, Value
 
@@ -8,30 +7,21 @@ from hyped.data.processors.statistics.value.disc_hist import (
     DiscreteHistogram,
     DiscreteHistogramConfig,
 )
-from hyped.utils.feature_access import (
-    batch_get_value_at_key,
-    get_feature_at_key,
-)
 from hyped.utils.feature_checks import (
     INT_TYPES,
     UINT_TYPES,
     check_feature_is_sequence,
-    raise_feature_exists,
     raise_feature_is_sequence,
 )
 
 # TODO: write tests for sequence value histogram
 
 
-@dataclass
 class DiscreteSequenceValueHistogramConfig(DiscreteHistogramConfig):
     """Discrete Sequence Value Histogram Data Statistic Config
 
     Build a histogram of a given discrete sequence feature,
     e.g. ClassLabel or string.
-
-    Type Identifier:
-        "hyped.data.processors.statistics.value.discrete_seq_val_histogram"
 
     Attributes:
         statistic_key (str):
@@ -41,10 +31,6 @@ class DiscreteSequenceValueHistogramConfig(DiscreteHistogramConfig):
             key to the dataset feature of which to build the
             histogram
     """
-
-    t: Literal[
-        "hyped.data.processors.statistics.sequence.discrete_seq_val_histogram"
-    ] = "hyped.data.processors.statistics.sequence.discrete_seq_val_histogram"
 
 
 class DiscreteSequenceValueHistogram(DiscreteHistogram):
@@ -59,7 +45,7 @@ class DiscreteSequenceValueHistogram(DiscreteHistogram):
 
     def _map_values(self, vals: list[Any]) -> list[Any]:
         # get feature
-        feature = get_feature_at_key(self.in_features, self.config.feature_key)
+        feature = self.config.feature_key.index_features(self.in_features)
         # check if feature is a class label
         if check_feature_is_sequence(feature, ClassLabel):
             # map class ids to names
@@ -77,11 +63,9 @@ class DiscreteSequenceValueHistogram(DiscreteHistogram):
             features (Features): input dataset features
         """
         # make sure feature exists and is a sequence
-        raise_feature_exists(self.config.feature_key, features)
-        feature = get_feature_at_key(features, self.config.feature_key)
         raise_feature_is_sequence(
             self.config.feature_key,
-            feature,
+            self.config.feature_key.index_features(features),
             INT_TYPES + UINT_TYPES + [ClassLabel, Value("string")],
         )
 
@@ -101,7 +85,7 @@ class DiscreteSequenceValueHistogram(DiscreteHistogram):
         Returns:
             hist (dict[Any, str]): histogram of given batch of examples
         """
-        x = batch_get_value_at_key(examples, self.config.feature_key)
+        x = self.config.feature_key.index_batch(examples)
         x = list(chain.from_iterable(x))
 
         return self._compute_histogram(x)

@@ -8,32 +8,34 @@ from hyped.data.processors.statistics.report import (
     StatisticsReportStorage,
     statistics_report_manager,
 )
-from hyped.utils.executor import SubprocessExecutor
 
 
 def _is_lock_acquired(lock):
     # try to acquire lock
     could_acquire = lock.acquire(blocking=False)
-    # release when axquired
+    # release when acquired
     if could_acquire:
         lock.release()
+        exit(0)
     # lock was already acquired when it couldn't be acquired here
-    return not could_acquire
+    exit(1)
 
 
 def is_lock_acquired(lock):
     # requires to be checked in different process
     # because RLock objects can be acquired multiple
     # times by the same process
-    with SubprocessExecutor() as executor:
-        return executor.execute(f=_is_lock_acquired, args=(lock,))
+    p = mp.Process(target=_is_lock_acquired, args=(lock,))
+    p.start()
+    p.join()
+    # exitcode 1 -> true, exitcode 0 -> false
+    return bool(p.exitcode)
 
 
 class TestStatisticsReportStorage(object):
     @pytest.fixture
     def storage(self):
-        with mp.Manager() as manager:
-            yield StatisticsReportStorage(manager)
+        return StatisticsReportStorage()
 
     def test_register_keys(self, storage) -> None:
         keys = "ABCDEF"
@@ -72,13 +74,11 @@ class TestStatisticsReportStorage(object):
                 for kk in keys:
                     # get state of lock for current test key
                     lock = storage.get_lock_for(kk)
-                    # check if lock is locked in subprocess
-                    is_locked = is_lock_acquired(lock)
                     # check expectation
                     if k == kk:
-                        assert is_locked
+                        assert is_lock_acquired(lock)
                     else:
-                        assert not is_locked
+                        assert not is_lock_acquired(lock)
 
 
 class TestStatisticsReportManager(object):
@@ -99,8 +99,8 @@ class TestStatisticsReportManager(object):
                 assert all(map(manager.is_active, storages[:i]))
                 assert not any(map(manager.is_active, storages[i:]))
                 # check reports iterator too
-                assert all(s in storages[:i] for s in manager.reports)
-                assert not any(s in storages[i:] for s in manager.reports)
+                assert all(s in storages[:i] for s in manager.reports())
+                assert not any(s in storages[i:] for s in manager.reports())
 
             for i, storage in enumerate(storages, 1):
                 # deactivate report
@@ -109,8 +109,8 @@ class TestStatisticsReportManager(object):
                 assert all(map(manager.is_active, storages[i:]))
                 assert not any(map(manager.is_active, storages[:i]))
                 # check reports iterator too
-                assert all(s in storages[i:] for s in manager.reports)
-                assert not any(s in storages[:i] for s in manager.reports)
+                assert all(s in storages[i:] for s in manager.reports())
+                assert not any(s in storages[:i] for s in manager.reports())
 
 
 class TestStatisticsReport(object):

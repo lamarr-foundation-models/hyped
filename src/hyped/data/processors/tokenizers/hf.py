@@ -1,8 +1,8 @@
-from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Literal
+from typing import Annotated, Any
 
 from datasets import Features, Sequence, Value
+from pydantic import ConfigDict, SkipValidation
 from transformers import (
     AutoTokenizer,
     LayoutXLMTokenizer,
@@ -16,17 +16,13 @@ from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_access import (
-    FeatureKey,
-    batch_get_value_at_key,
-    get_feature_at_key,
-)
 from hyped.utils.feature_checks import (
     INT_TYPES,
     UINT_TYPES,
     raise_feature_equals,
     raise_feature_is_sequence,
 )
+from hyped.utils.feature_key import FeatureKey
 
 
 class HuggingFaceTokenizerOutputs(str, Enum):
@@ -76,7 +72,6 @@ class HuggingFaceTokenizerOutputs(str, Enum):
     in the configuration."""
 
 
-@dataclass
 class HuggingFaceTokenizerConfig(BaseDataProcessorConfig):
     """HuggingFace (Transformers) Tokenizer Config
 
@@ -148,11 +143,12 @@ class HuggingFaceTokenizerConfig(BaseDataProcessorConfig):
             for fast tokenizers. Defaults to false.
     """
 
-    t: Literal[
-        "hyped.data.processors.tokenizer.hf"
-    ] = "hyped.data.processors.tokenizer.hf"
+    # allow tokenizer type in pydantic model
+    model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    tokenizer: str | PreTrainedTokenizer = "bert-base-uncased"
+    tokenizer: Annotated[
+        str | PreTrainedTokenizer, SkipValidation
+    ] = "bert-base-uncased"
     # text input to tokenize
     text: None | FeatureKey = "text"
     text_pair: None | FeatureKey = None
@@ -250,7 +246,7 @@ class HuggingFaceTokenizer(BaseDataProcessor[HuggingFaceTokenizerConfig]):
         """
 
         # make sure feature exists
-        feature = get_feature_at_key(features, key)
+        feature = key.index_features(features)
         # check type
         if self.config.is_split_into_words:
             # when pre-tokenized the input should be a sequence of strings
@@ -285,7 +281,7 @@ class HuggingFaceTokenizer(BaseDataProcessor[HuggingFaceTokenizerConfig]):
                 )
 
             # make sure the feature exists
-            boxes = get_feature_at_key(features, self.config.boxes)
+            boxes = self.config.boxes.index_features(features)
             # make sure its of the correct type
             raise_feature_is_sequence(
                 self.config.boxes,
@@ -391,9 +387,7 @@ class HuggingFaceTokenizer(BaseDataProcessor[HuggingFaceTokenizerConfig]):
         # collect all features form the example
         for key in type(self).KWARGS_FROM_EXAMPLE:
             if getattr(self.config, key) is not None:
-                kwargs[key] = batch_get_value_at_key(
-                    examples, getattr(self.config, key)
-                )
+                kwargs[key] = getattr(self.config, key).index_batch(examples)
         # add all options kwargs specified in the config
         for key in type(self).KWARGS_FROM_CONFIG:
             kwargs[key] = getattr(self.config, key)

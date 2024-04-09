@@ -27,37 +27,39 @@ class TestTypeRegistry:
         type_ids = set(RegisterTypes.type_registry.type_ids)
 
         class A(RegisterTypes):
-            t = "A"
+            pass
 
         # check simple case
         assert {A} == set(RegisterTypes.type_registry.types) - types
-        assert {"A"} == set(RegisterTypes.type_registry.type_ids) - type_ids
+        assert {A.type_id} == set(
+            RegisterTypes.type_registry.type_ids
+        ) - type_ids
 
         # set up complex case
         class B(RegisterTypes):
-            t = "B"
+            pass
 
         class C(B):
-            t = "C"
+            pass
 
         class D(C, B):
-            t = "D"
+            pass
 
         # check complex case
         assert {A, B, C, D} == set(RegisterTypes.type_registry.types) - types
-        assert {"A", "B", "C", "D"} == set(
+        assert {A.type_id, B.type_id, C.type_id, D.type_id} == set(
             RegisterTypes.type_registry.type_ids
         ) - type_ids
 
         # test overwriting registered type ids
-        class C1(D):
-            t = "C"
+        class C(D):
+            pass
 
         # should have a new type but the type id is overwritten
-        assert {A, B, C, D, C1} == set(
+        assert {A, B, C, D, C} == set(
             RegisterTypes.type_registry.types
         ) - types
-        assert {"A", "B", "C", "D"} == set(
+        assert {A.type_id, B.type_id, C.type_id, D.type_id} == set(
             RegisterTypes.type_registry.type_ids
         ) - type_ids
 
@@ -66,19 +68,19 @@ class TestTypeRegistry:
         type_ids = set(RegisterTypes.type_registry.type_ids)
 
         class A(RegisterTypes):
-            t = "A"
+            pass
 
         class B(A):
-            t = "B"
+            pass
 
         class C(A):
-            t = "C"
+            pass
 
         class D(B):
-            t = "D"
+            pass
 
         class D2(C):
-            t = "D"
+            pass
 
         # check types
         assert {A, B, C, D, D2} == set(
@@ -88,22 +90,24 @@ class TestTypeRegistry:
         assert {B, D} == set(B.type_registry.types)
         assert {C, D2} == set(C.type_registry.types)
         # check type ids
-        assert {"A", "B", "C", "D"} == set(
+        assert {A.type_id, B.type_id, C.type_id, D.type_id, D2.type_id} == set(
             RegisterTypes.type_registry.type_ids
         ) - type_ids
-        assert {"A", "B", "C", "D"} == set(A.type_registry.type_ids)
-        assert {"B", "D"} == set(B.type_registry.type_ids)
-        assert {"C", "D"} == set(C.type_registry.type_ids)
+        assert {A.type_id, B.type_id, C.type_id, D.type_id, D2.type_id} == set(
+            A.type_registry.type_ids
+        )
+        assert {B.type_id, D.type_id} == set(B.type_registry.type_ids)
+        assert {C.type_id, D2.type_id} == set(C.type_registry.type_ids)
 
     def test_get_type_by_hash(self):
         class A(RegisterTypes):
-            t = "A"
+            pass
 
         class B(RegisterTypes):
-            t = "B"
+            pass
 
         class C(B):
-            t = "C"
+            pass
 
         assert A == RegisterTypes.type_registry.get_type_by_hash(A.type_hash)
         assert B == RegisterTypes.type_registry.get_type_by_hash(B.type_hash)
@@ -111,14 +115,14 @@ class TestTypeRegistry:
 
     def test_get_type_by_t(self):
         class A(RegisterTypes):
-            t = "A"
+            pass
 
         class B(RegisterTypes):
-            t = "B"
+            pass
 
         class C(B):
-            t = "C"
+            pass
 
-        assert A == RegisterTypes.type_registry.get_type_by_t(A.t)
-        assert B == RegisterTypes.type_registry.get_type_by_t(B.t)
-        assert C == RegisterTypes.type_registry.get_type_by_t(C.t)
+        assert A == RegisterTypes.type_registry.get_type_by_t(A.type_id)
+        assert B == RegisterTypes.type_registry.get_type_by_t(B.type_id)
+        assert C == RegisterTypes.type_registry.get_type_by_t(C.type_id)

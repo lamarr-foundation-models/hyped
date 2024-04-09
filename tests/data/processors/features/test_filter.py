@@ -75,14 +75,6 @@ class TestKeepFeatures(BaseTestFilterFeatures):
         params=chain(
             [
                 {
-                    "config": FilterFeaturesConfig(keep=key),
-                    "out_features": {key: FEATURES[key]},
-                    "out_batch": {key: BATCH[key]},
-                }
-                for key in "XYAB"
-            ],
-            [
-                {
                     "config": FilterFeaturesConfig(keep=list(keys)),
                     "out_features": {k: FEATURES[k] for k in keys},
                     "out_batch": {k: BATCH[k] for k in keys},
@@ -197,14 +189,6 @@ class TestRemoveFeatures(BaseTestFilterFeatures):
         params=chain(
             [
                 {
-                    "config": FilterFeaturesConfig(keep=key),
-                    "out_features": {key: FEATURES[key]},
-                    "out_batch": {key: BATCH[key]},
-                }
-                for key in "XYAB"
-            ],
-            [
-                {
                     "config": FilterFeaturesConfig(remove=list(keys)),
                     "out_features": {
                         k: FEATURES[k] for k in "XYAB" if k not in keys
@@ -223,20 +207,11 @@ class TestRemoveFeatures(BaseTestFilterFeatures):
         return request.param
 
 
-class TestErrorOnInvalidConfig(BaseTestDataProcessor):
-    @pytest.fixture
-    def in_features(self):
-        return FEATURES
+class TestErrorOnInvalidConfig(object):
+    def test_error_on_no_filter_specified(self):
+        with pytest.raises(ValueError):
+            FilterFeaturesConfig()
 
-    @pytest.fixture(
-        params=[
-            FilterFeaturesConfig(),
+    def test_error_on_both_filter_specified(self):
+        with pytest.raises(ValueError):
             FilterFeaturesConfig(keep=["X"], remove=["Y"]),
-        ]
-    )
-    def processor(self, request):
-        return FilterFeatures(request.param)
-
-    @pytest.fixture
-    def expected_err_on_prepare(self):
-        return ValueError

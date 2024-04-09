@@ -1,6 +1,5 @@
-from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 from datasets import ClassLabel, Features, Sequence, Value
@@ -9,11 +8,6 @@ from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_access import (
-    FeatureKey,
-    get_feature_at_key,
-    get_value_at_key,
-)
 from hyped.utils.feature_checks import (
     INDEX_TYPES,
     get_sequence_feature,
@@ -21,6 +15,7 @@ from hyped.utils.feature_checks import (
     raise_feature_is_sequence,
     raise_features_align,
 )
+from hyped.utils.feature_key import FeatureKey
 from hyped.utils.spans import make_spans_exclusive
 
 
@@ -31,7 +26,6 @@ class BioTaggerOutputs(str, Enum):
     """Output column containing the generated bio tag sequence"""
 
 
-@dataclass
 class BioTaggerConfig(BaseDataProcessorConfig):
     """Begin-In-Out (BIO) Tagger Config
 
@@ -66,19 +60,15 @@ class BioTaggerConfig(BaseDataProcessorConfig):
             inclusive or exclusive. Defaults to false.
     """
 
-    t: Literal[
-        "hyped.data.processors.taggers.bio"
-    ] = "hyped.data.processors.taggers.bio"
-
     begin_tag_prefix: str = "B-"
     in_tag_prefix: str = "I-"
     out_tag: str = "O"
 
-    input_sequence: FeatureKey = None
+    input_sequence: FeatureKey
     mask: None | FeatureKey = None
-    entity_spans_begin: FeatureKey = None
-    entity_spans_end: FeatureKey = None
-    entity_spans_label: FeatureKey = None
+    entity_spans_begin: FeatureKey
+    entity_spans_end: FeatureKey
+    entity_spans_label: FeatureKey
 
     entity_spans_inclusive: bool = False
 
@@ -96,8 +86,8 @@ class BioTagger(BaseDataProcessor[BioTaggerConfig]):
     @property
     def entity_label_space(self) -> None | ClassLabel:
         """Entity label-space extracted from input features"""
-        feature = get_feature_at_key(
-            self.in_features, self.config.entity_spans_label
+        feature = self.config.entity_spans_label.index_features(
+            self.in_features
         )
         feature = get_sequence_feature(feature)
         return feature if isinstance(feature, ClassLabel) else None
@@ -125,11 +115,9 @@ class BioTagger(BaseDataProcessor[BioTaggerConfig]):
             tag_seq (Sequence): the dataset feature for the bio tags
         """
         # get input sequence and entity spans label feature
-        input_sequence = get_feature_at_key(
-            features, self.config.input_sequence
-        )
-        entity_spans_label = get_feature_at_key(
-            features, self.config.entity_spans_label
+        input_sequence = self.config.input_sequence.index_features(features)
+        entity_spans_label = self.config.entity_spans_label.index_features(
+            features
         )
         # the entity class label feature must be a sequence of
         # string values or class labels
@@ -173,24 +161,22 @@ class BioTagger(BaseDataProcessor[BioTaggerConfig]):
             out (Features): bio tags feature mapping
         """
         # make sure the input sequence exists and is a sequence
-        input_sequence = get_feature_at_key(
-            features, self.config.input_sequence
-        )
+        input_sequence = self.config.input_sequence.index_features(features)
         raise_feature_is_sequence(self.config.input_sequence, input_sequence)
 
         # make sure the invalid mask exists and is a sequence when set
         if self.config.mask:
-            mask = get_feature_at_key(features, self.config.mask)
+            mask = self.config.mask.index_features(features)
             raise_feature_is_sequence(
                 self.config.mask, mask, [Value("bool")] + INDEX_TYPES
             )
 
         # make sure entity spans exist and are of correct type
-        entity_spans_begin = get_feature_at_key(
-            features, self.config.entity_spans_begin
+        entity_spans_begin = self.config.entity_spans_begin.index_features(
+            features
         )
-        entity_spans_end = get_feature_at_key(
-            features, self.config.entity_spans_end
+        entity_spans_end = self.config.entity_spans_end.index_features(
+            features
         )
         # begin and end sequences should contain indices
         raise_feature_is_sequence(
@@ -228,24 +214,24 @@ class BioTagger(BaseDataProcessor[BioTaggerConfig]):
             out (dict[str, Any]): token-level span annotations
         """
         # get length of input sequence
-        length = len(get_value_at_key(example, self.config.input_sequence))
+        length = len(self.config.input_sequence.index_example(example))
         # get the invalid mask
         if self.config.mask is not None:
-            mask = get_value_at_key(example, self.config.mask)
+            mask = self.config.mask.index_example(example)
             mask = np.asarray(mask, dtype=bool)
         else:
             mask = np.full(length, fill_value=False, dtype=bool)
 
         # get entity spans
         spans = zip(
-            get_value_at_key(example, self.config.entity_spans_begin),
-            get_value_at_key(example, self.config.entity_spans_end),
+            self.config.entity_spans_begin.index_example(example),
+            self.config.entity_spans_end.index_example(example),
         )
         # make entity spans exclusive and filter overlapping spans
         spans = make_spans_exclusive(spans, self.config.entity_spans_inclusive)
 
         # get the entity labels
-        labels = get_value_at_key(example, self.config.entity_spans_label)
+        labels = self.config.entity_spans_label.index_example(example)
         # convert label ids to label strings
         if self.entity_label_space is not None:
             labels = self.entity_label_space.int2str(labels)

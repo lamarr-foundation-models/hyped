@@ -1,6 +1,5 @@
 import json
 from copy import deepcopy
-from dataclasses import dataclass
 from typing import TypeVar
 
 import pytest
@@ -45,15 +44,11 @@ def _reset_registry():
 
 class TestBaseConfig:
     def test_dict_conversion(self):
-        @dataclass
         class A(BaseConfig):
-            t: str = "A"
             x: str = ""
             y: str = ""
 
-        @dataclass
         class B(A):
-            t: str = "B"
             z: str = ""
 
         a = A(x="x", y="y")
@@ -73,21 +68,17 @@ class TestBaseConfig:
         assert b == AutoConfig.from_dict(b_dict)
 
         # test reconstruction by explicit class
-        a_dict.pop("t")
-        b_dict.pop("t")
+        a_dict.pop("type_id")
+        b_dict.pop("type_id")
         assert a == A.from_dict(a_dict)
         assert b == B.from_dict(b_dict)
 
     def test_serialization(self):
-        @dataclass
         class A(BaseConfig):
-            t: str = "A"
             x: str = ""
             y: str = ""
 
-        @dataclass
         class B(A):
-            t: str = "B"
             z: str = ""
 
         a = A(x="x", y="y")
@@ -111,8 +102,8 @@ class TestBaseConfig:
         assert b == AutoConfig.from_json(b_json)
 
         # test reconstruction by explicit class
-        a_dict.pop("t")
-        b_dict.pop("t")
+        a_dict.pop("type_id")
+        b_dict.pop("type_id")
         a_json = json.dumps(a_dict)
         b_json = json.dumps(b_dict)
         assert a == A.from_json(a_json)
@@ -121,21 +112,17 @@ class TestBaseConfig:
 
 class TestBaseConfigurable:
     def test_config_type(self):
-        @dataclass
         class aConfig(BaseConfig):
-            t: str = "a.config"
+            pass
 
-        @dataclass
         class bConfig(BaseConfig):
-            t: str = "b.config"
+            pass
 
-        @dataclass
         class cConfig(bConfig):
-            t: str = "c.config"
+            pass
 
-        @dataclass
         class dConfig(bConfig):
-            t: str = "d.config"
+            pass
 
         class A(Configurable[aConfig]):
             pass
@@ -155,19 +142,17 @@ class TestBaseConfigurable:
         assert C.config_type == cConfig
         assert D.config_type == dConfig
         # check type identifiers
-        assert A.t.startswith(aConfig.t)
-        assert B.t.startswith(bConfig.t)
-        assert C.t.startswith(cConfig.t)
-        assert D.t.startswith(dConfig.t)
+        assert A.type_id.startswith(aConfig.type_id)
+        assert B.type_id.startswith(bConfig.type_id)
+        assert C.type_id.startswith(cConfig.type_id)
+        assert D.type_id.startswith(dConfig.type_id)
 
     def test_config_type_error(self):
-        @dataclass
         class aConfig(BaseConfig):
-            t: str = "a.config"
+            pass
 
-        @dataclass
         class bConfig(BaseConfig):
-            t: str = "b.config"
+            pass
 
         class A(Configurable[aConfig]):
             pass
@@ -180,13 +165,11 @@ class TestBaseConfigurable:
                 CONFIG_TYPE = bConfig
 
     def test_auto_from_config(self):
-        @dataclass
         class aConfig(BaseConfig):
-            t: str = "a.config"
+            pass
 
-        @dataclass
         class bConfig(BaseConfig):
-            t: str = "b.config"
+            pass
 
         class A(Configurable[aConfig]):
             pass

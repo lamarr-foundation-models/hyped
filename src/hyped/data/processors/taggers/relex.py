@@ -1,6 +1,5 @@
-from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 from datasets import Features, Sequence, Value
@@ -9,11 +8,6 @@ from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_access import (
-    FeatureKey,
-    get_feature_at_key,
-    get_value_at_key,
-)
 from hyped.utils.feature_checks import (
     INDEX_TYPES,
     get_sequence_feature,
@@ -21,6 +15,7 @@ from hyped.utils.feature_checks import (
     raise_feature_equals,
     raise_feature_is_sequence,
 )
+from hyped.utils.feature_key import FeatureKey
 from hyped.utils.spans import make_spans_exclusive
 
 
@@ -31,7 +26,6 @@ class RelExTaggerOutputs(str, Enum):
     """Output column containing the marked input sequence"""
 
 
-@dataclass
 class RelExTaggerConfig(BaseDataProcessorConfig):
     """Relation Extraction Tagger
 
@@ -76,24 +70,20 @@ class RelExTaggerConfig(BaseDataProcessorConfig):
             length are filtered
     """
 
-    t: Literal[
-        "hyped.data.processors.taggers.relex"
-    ] = "hyped.data.processors.taggers.relex"
-
     # source entity markers
-    source_begin_marker: str | int = None
-    source_end_marker: str | int = None
+    source_begin_marker: str | int
+    source_end_marker: str | int
     # target entity markers
-    target_begin_marker: str | int = None
-    target_end_marker: str | int = None
+    target_begin_marker: str | int
+    target_end_marker: str | int
 
-    input_sequence: FeatureKey = None
+    input_sequence: FeatureKey
     # source entity span
-    source_span_begin: FeatureKey = None
-    source_span_end: FeatureKey = None
+    source_span_begin: FeatureKey
+    source_span_end: FeatureKey
     # target entity span
-    target_span_begin: FeatureKey = None
-    target_span_end: FeatureKey = None
+    target_span_begin: FeatureKey
+    target_span_end: FeatureKey
 
     # span inclusive or not
     source_span_inclusive: bool = False
@@ -185,7 +175,7 @@ class RelExTagger(BaseDataProcessor[RelExTaggerConfig]):
         value_type = self._get_sequence_value_type()
 
         # make sure input feature exists
-        sequence = get_feature_at_key(features, self.config.input_sequence)
+        sequence = self.config.input_sequence.index_features(features)
         raise_feature_is_sequence(
             self.config.input_sequence,
             sequence,
@@ -199,7 +189,7 @@ class RelExTagger(BaseDataProcessor[RelExTaggerConfig]):
             self.config.target_span_end,
         ]:
             # make sure span exists and is of expected type
-            feature = get_feature_at_key(features, key)
+            feature = key.index_features(features)
             raise_feature_equals(key, feature, INDEX_TYPES)
 
         # build output feature
@@ -210,18 +200,18 @@ class RelExTagger(BaseDataProcessor[RelExTaggerConfig]):
         self, example: dict[str, Any], index: int, rank: int
     ) -> dict[str, Any]:
         # get input sequence from example
-        input_sequence = get_value_at_key(example, self.config.input_sequence)
+        input_sequence = self.config.input_sequence.index_example(example)
         input_sequence = list(input_sequence)
         l = len(input_sequence)  # noqa: E741
 
         # get source and target spans
         src_span = (
-            get_value_at_key(example, self.config.source_span_begin),
-            get_value_at_key(example, self.config.source_span_end),
+            self.config.source_span_begin.index_example(example),
+            self.config.source_span_end.index_example(example),
         )
         tgt_span = (
-            get_value_at_key(example, self.config.target_span_begin),
-            get_value_at_key(example, self.config.target_span_end),
+            self.config.target_span_begin.index_example(example),
+            self.config.target_span_end.index_example(example),
         )
         # make spans exclusive, that is the end coordinate points
         # to the first item after the entity as the marker will be

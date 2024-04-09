@@ -3,6 +3,7 @@ from itertools import compress
 import pytest
 from datasets import Features, Sequence, Value
 
+from hyped.data.processors.spans.outputs import SpansOutputs
 from hyped.data.processors.spans.overlaps import (
     ResolveSpanOverlaps,
     ResolveSpanOverlapsConfig,
@@ -39,8 +40,8 @@ class TestResolveSpanOverlaps(BaseTestDataProcessor):
     def in_features(self):
         return Features(
             {
-                "spans_begin": Sequence(Value("int32")),
-                "spans_end": Sequence(Value("int32")),
+                SpansOutputs.BEGINS: Sequence(Value("int32")),
+                SpansOutputs.ENDS: Sequence(Value("int32")),
             }
         )
 
@@ -48,7 +49,7 @@ class TestResolveSpanOverlaps(BaseTestDataProcessor):
     def processor(self):
         return ResolveSpanOverlaps(
             ResolveSpanOverlapsConfig(
-                spans_begin="spans_begin", spans_end="spans_end"
+                spans_begin=SpansOutputs.BEGINS, spans_end=SpansOutputs.ENDS
             )
         )
 
@@ -56,8 +57,8 @@ class TestResolveSpanOverlaps(BaseTestDataProcessor):
     def in_batch(self, spans):
         begins, ends = ([], []) if len(spans) == 0 else zip(*spans)
         return {
-            "spans_begin": [list(begins)],
-            "spans_end": [list(ends)],
+            SpansOutputs.BEGINS: [list(begins)],
+            SpansOutputs.ENDS: [list(ends)],
         }
 
     @pytest.fixture
@@ -67,6 +68,6 @@ class TestResolveSpanOverlaps(BaseTestDataProcessor):
 
         return {
             "resolve_overlaps_mask": [mask],
-            "spans_begin": [list(begins)],
-            "spans_end": [list(ends)],
+            SpansOutputs.BEGINS: [list(begins)],
+            SpansOutputs.ENDS: [list(ends)],
         }

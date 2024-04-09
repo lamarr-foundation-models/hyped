@@ -1,9 +1,9 @@
 import multiprocessing as mp
 from abc import abstractmethod
-from dataclasses import dataclass
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Generic, TypeVar
 
 from datasets import Features
+from pydantic import Field
 
 from hyped.data.processors.base import (
     BaseDataProcessor,
@@ -15,7 +15,6 @@ from hyped.data.processors.statistics.report import (
 )
 
 
-@dataclass
 class BaseDataStatisticConfig(BaseDataProcessorConfig):
     """Base Statistic Data Processor Config
 
@@ -25,15 +24,8 @@ class BaseDataStatisticConfig(BaseDataProcessorConfig):
             See `StatisticsReport` for more information.
     """
 
-    t: Literal[
-        "hyped.data.processors.statistics.base"
-    ] = "hyped.data.processors.statistics.base"
-
-    statistic_key: str = None
-
-    def __post_init__(self) -> None:
-        assert self.keep_input_features
-        assert self.output_format is None
+    statistic_key: str
+    output_format: None = Field(default=None, init_var=False)
 
 
 T = TypeVar("T", bound=BaseDataStatisticConfig)
@@ -84,7 +76,7 @@ class BaseDataStatistic(BaseDataProcessor[T], Generic[T, U]):
 
         extracted_value = self.extract(examples, index, rank)
         # update reports
-        for report in statistics_report_manager.reports:
+        for report in statistics_report_manager.reports():
             # make sure the statistic is registered
             if self.config.statistic_key not in report:
                 raise RuntimeError(
@@ -123,7 +115,7 @@ class BaseDataStatistic(BaseDataProcessor[T], Generic[T, U]):
         # check input features
         self.check_features(features)
         # register statistic to all active reports
-        for report in statistics_report_manager.reports:
+        for report in statistics_report_manager.reports():
             report.register(
                 self.config.statistic_key,
                 self.initial_value(features, report.manager),

@@ -1,5 +1,4 @@
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 from datasets import Features, Sequence, Value
@@ -9,17 +8,12 @@ from hyped.data.processors.base import (
     BaseDataProcessorConfig,
 )
 from hyped.data.processors.tokenizers.hf import HuggingFaceTokenizerOutputs
-from hyped.utils.feature_access import (
-    FeatureKey,
-    get_feature_at_key,
-    get_value_at_key,
-)
 from hyped.utils.feature_checks import INDEX_TYPES, raise_feature_is_sequence
+from hyped.utils.feature_key import FeatureKey
 
 from .outputs import SpansOutputs
 
 
-@dataclass
 class TokenSpansFromWordIdsConfig(BaseDataProcessorConfig):
     """Token Spans from Word Ids Processor Config
 
@@ -37,10 +31,6 @@ class TokenSpansFromWordIdsConfig(BaseDataProcessorConfig):
             considered. Defaults to
             `HuggingFaceTokenizerOutputs.SPECIAL_TOKENS_MASK`.
     """
-
-    t: Literal[
-        "hyped.data.processors.spans.from_word_ids"
-    ] = "hyped.data.processors.spans.from_word_ids"
 
     word_ids: FeatureKey = HuggingFaceTokenizerOutputs.WORD_IDS.value
     mask: None | FeatureKey = (
@@ -71,11 +61,11 @@ class TokenSpansFromWordIds(BaseDataProcessor[TokenSpansFromWordIdsConfig]):
             out (Features): span features
         """
         # make sure word ids feature exists and is a sequence of indices
-        word_ids = get_feature_at_key(features, self.config.word_ids)
+        word_ids = self.config.word_ids.index_features(features)
         raise_feature_is_sequence(self.config.word_ids, word_ids, INDEX_TYPES)
         # make sure mask is valid if specified
         if self.config.mask is not None:
-            mask = get_feature_at_key(features, self.config.mask)
+            mask = self.config.mask.index_features(features)
             raise_feature_is_sequence(
                 self.config.mask,
                 mask,
@@ -101,13 +91,13 @@ class TokenSpansFromWordIds(BaseDataProcessor[TokenSpansFromWordIdsConfig]):
             out (dict[str, Any]): token-level spans
         """
         # get word ids from example and convert to numpy array
-        word_ids = get_value_at_key(example, self.config.word_ids)
+        word_ids = self.config.word_ids.index_example(example)
         word_ids = np.asarray(word_ids)
 
         if self.config.mask is not None:
             # get mask from example and convert to numpy array
             # also invert it to get a mask indicating valid items
-            mask = get_value_at_key(example, self.config.mask)
+            mask = self.config.mask.index_example(example)
             mask = ~np.asarray(mask).astype(bool)
         else:
             # create a dummy mask of all trues when mask is not specified

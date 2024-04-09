@@ -3,46 +3,15 @@ from datasets import Features, Sequence, Value
 
 from hyped.utils.feature_checks import (
     check_feature_equals,
-    check_feature_exists,
     check_feature_is_sequence,
     check_object_matches_feature,
     check_sequence_lengths_match,
     get_sequence_feature,
     get_sequence_length,
     raise_feature_equals,
-    raise_feature_exists,
     raise_feature_is_sequence,
     raise_object_matches_feature,
 )
-
-
-class TestFeatureExists:
-    @pytest.fixture
-    def features(self):
-        return Features(
-            {
-                "A": Value("int32"),
-                "B": Value("int32"),
-            }
-        )
-
-    def test_exist(self, features):
-        # exist
-        assert check_feature_exists("A", features)
-        assert check_feature_exists("B", features)
-        # shouldn't raise error
-        check_feature_exists("A", features)
-        check_feature_exists("B", features)
-
-    def test_doesnt_exist(self, features):
-        # doesnt exist
-        assert not check_feature_exists("X", features)
-        assert not check_feature_exists("Y", features)
-        # should raise error
-        with pytest.raises(KeyError):
-            raise_feature_exists("X", features)
-        with pytest.raises(KeyError):
-            raise_feature_exists("Y", features)
 
 
 class TestFeatureEquals:

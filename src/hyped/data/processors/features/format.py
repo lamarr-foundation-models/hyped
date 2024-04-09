@@ -1,5 +1,4 @@
-from dataclasses import dataclass, field
-from typing import Any, ClassVar, Literal
+from typing import Any, ClassVar
 
 from datasets import Features
 
@@ -7,20 +6,17 @@ from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_access import FeatureKeyCollection
+from hyped.utils.feature_key import FeatureKeyCollection
 
 
-@dataclass
 class FormatFeaturesConfig(BaseDataProcessorConfig):
     """(Re-Format) Dataset Features Processor Config
 
     Re-Formats Features of the dataset according to the
     specified mapping.
 
-    Type Identifier: `hyped.data.processors.features.format`
-
     Attributes:
-        output_format (dict[str, FeatureMappingT]):
+        output_format (FeatureKeyCollection):
             feature mapping describing the formatted target features,
             Leafs of the (nested) mapping must be valid feature names
             of existing dataset features or paths (i.e. tuples) in case
@@ -30,13 +26,7 @@ class FormatFeaturesConfig(BaseDataProcessorConfig):
     # include output format when parsing for required feature keys
     _IGNORE_KEYS_FROM_FIELDS: ClassVar[list[str]] = []
 
-    t: Literal[
-        "hyped.data.processors.features.format"
-    ] = "hyped.data.processors.features.format"
-
-    output_format: dict[str, FeatureKeyCollection] = field(
-        default_factory=dict
-    )
+    output_format: FeatureKeyCollection
 
 
 class FormatFeatures(BaseDataProcessor[FormatFeaturesConfig]):

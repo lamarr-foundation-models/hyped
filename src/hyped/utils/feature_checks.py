@@ -32,21 +32,6 @@ FLOAT_TYPES = [
 INDEX_TYPES = INT_TYPES + UINT_TYPES
 
 
-def check_feature_exists(name: str, features: Features) -> bool:
-    """Check if feature exists in feature mapping
-
-    Raises KeyError if feature is not present.
-
-    Arguments:
-        name (str): name of the feature to check for
-        features (Features): feature mapping to check
-
-    Returns:
-        exists (bool): whether the feature exists
-    """
-    return name in features
-
-
 def check_feature_equals(
     feature: FeatureType, target: FeatureType | list[FeatureType]
 ) -> bool:
@@ -219,23 +204,6 @@ def check_object_matches_feature(obj: Any, feature: FeatureType):
     except (pa.lib.ArrowTypeError, pa.lib.ArrowInvalid):
         # catch error in type check
         return False
-
-
-def raise_feature_exists(name: str, features: Features) -> None:
-    """Check if feature exists in feature mapping
-
-    Arguments:
-        name (str): name of the feature to check for
-        features (Features): feature mapping to check
-
-    Raises:
-        exp (KeyError): when the feature doesn't exist
-    """
-    if not check_feature_exists(name, features):
-        raise KeyError(
-            "`%s` not present in features, valid feature keys are %s"
-            % (name, list(features.keys()))
-        )
 
 
 def raise_feature_equals(

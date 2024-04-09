@@ -1,17 +1,15 @@
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from datasets import Features
+from pydantic import model_validator
 
 from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_access import FeatureKey
-from hyped.utils.feature_checks import raise_feature_exists
+from hyped.utils.feature_key import FeatureKey
 
 
-@dataclass
 class FilterFeaturesConfig(BaseDataProcessorConfig):
     """Filter Features Data Processor Config
 
@@ -32,14 +30,30 @@ class FilterFeaturesConfig(BaseDataProcessorConfig):
 
     """
 
-    t: Literal[
-        "hyped.data.processors.features.filter"
-    ] = "hyped.data.processors.features.filter"
     # don't keep input features
     keep_input_features: bool = False
     # feature keys to keep or remove
     keep: None | list[FeatureKey] = None
     remove: None | list[FeatureKey] = None
+
+    @model_validator(mode="after")
+    def _validate_arguments(cls, config):
+        keep = config.keep
+        remove = config.remove
+
+        if (keep is None) and (remove is None):
+            raise ValueError(
+                "No filters specified, please specify either the `keep` "
+                "or `remove` filters in the configuration"
+            )
+
+        if (keep is not None) and (remove is not None):
+            raise ValueError(
+                "Please specify either the `keep` or the `remove` filter "
+                "but not both"
+            )
+
+        return config
 
 
 class FilterFeatures(BaseDataProcessor[FilterFeaturesConfig]):
@@ -69,38 +83,28 @@ class FilterFeatures(BaseDataProcessor[FilterFeaturesConfig]):
 
         keep = self.config.keep
         remove = self.config.remove
-
-        # check configuration
-        if (keep is None) and (remove is None):
-            raise ValueError(
-                "No filters specified, please specify either the `keep` "
-                "or `remove` filters in the configuration"
-            )
-
-        if (keep is not None) and (remove is not None):
-            raise ValueError(
-                "Please specify either the `keep` or the `remove` filter "
-                "but not both"
-            )
-
         # make sure all features exist
         for k in keep if keep is not None else remove:
-            raise_feature_exists(k, features)
-
             # TODO: currently only supports string keys
-            if not isinstance(k, str):
+            if not (len(k) == 1 and isinstance(k[0], str)):
                 raise NotImplementedError(
-                    "Currently only simple string keys are "
-                    "supported by the filter processor"
+                    "Currently only one-entry string keys are "
+                    "supported by the filter processor, got %s" % str(k)
+                )
+
+            if k[0] not in features:
+                raise KeyError(
+                    "`%s` not present in features, valid feature keys are %s"
+                    % (k[0], list(features.keys()))
                 )
 
         if keep is not None:
             # collect features
-            return Features({k: features[k] for k in keep})
+            return Features({k[0]: features[k[0]] for k in keep})
 
         if remove is not None:
             # remove features
-            remove = set(remove)
+            remove = set([k[0] for k in remove])
             return Features(
                 {k: v for k, v in features.items() if k not in remove}
             )
