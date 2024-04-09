@@ -26,6 +26,10 @@ class LazyInstance(Generic[T]):
         # forward all requests to the instance
         return getattr(self.instance, name)
 
+    def _is_instantiated(self) -> bool:
+        """Check whether the lazy object is instantiated"""
+        return self.instance is not None
+
 
 class LazySharedInstance(LazyInstance[T]):
     """Lazy Shared Instance
