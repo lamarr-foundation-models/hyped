@@ -9,6 +9,7 @@ from matplotlib import colormaps
 from matplotlib import pyplot as plt
 
 from hyped.data.pipe import DataPipe
+from hyped.data.processors.base import BaseDataProcessor
 from hyped.data.processors.statistics.base import BaseDataStatistic
 
 
@@ -19,6 +20,7 @@ class NodeType(str, Enum):
     OUTPUT_FEATURE = "output_feature"
     DATA_PROCESSOR = "data_processor"
     DATA_STATISTIC = "data_statistic"
+    DATA_PIPE = "data_pipe"
 
 
 class NodeAttribute(str, Enum):
@@ -107,6 +109,17 @@ class ProcessGraph(nx.DiGraph):
                 for k in p.required_feature_keys
             ]
 
+            node_type = (
+                NodeType.DATA_PIPE
+                if isinstance(p, DataPipe)
+                else NodeType.DATA_STATISTIC
+                if isinstance(p, BaseDataStatistic)
+                else NodeType.DATA_PROCESSOR
+                if isinstance(p, BaseDataProcessor)
+                else None
+            )
+            if node_type is None:
+                raise TypeError("Unexpected processor type, got %s" % p)
             # create node attributes
             node_id = next(counter)
             layer = max((layers[k] for k in req_keys), default=0) + 1
@@ -114,11 +127,7 @@ class ProcessGraph(nx.DiGraph):
             self.add_node(
                 node_id,
                 **{
-                    NodeAttribute.TYPE: (
-                        NodeType.DATA_STATISTIC
-                        if isinstance(p, BaseDataStatistic)
-                        else NodeType.DATA_PROCESSOR
-                    ),
+                    NodeAttribute.TYPE: node_type,
                     NodeAttribute.LABEL: type(p).__name__,
                     NodeAttribute.LAYER: layer,
                     NodeAttribute.EXECUTION_INDEX: i,
@@ -137,7 +146,9 @@ class ProcessGraph(nx.DiGraph):
                 )
 
             # update current features
-            if not p.config.keep_input_features:
+            if (
+                node_type is not NodeType.DATA_PIPE
+            ) and not p.config.keep_input_features:
                 nodes.clear()
             for k in p.new_features.keys():
                 nodes[k] = node_id
@@ -222,6 +233,7 @@ class ProcessGraph(nx.DiGraph):
             NodeType.OUTPUT_FEATURE: cmap.colors[0],
             NodeType.DATA_PROCESSOR: cmap.colors[1],
             NodeType.DATA_STATISTIC: cmap.colors[2],
+            NodeType.DATA_PIPE: cmap.colors[3],
         }
         color_map = default_color_map | color_map
 

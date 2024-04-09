@@ -90,6 +90,7 @@ class BaseTestProcessGraph(object):
         node_index = nx.get_node_attributes(G, NodeAttribute.EXECUTION_INDEX)
 
         # separate node types
+        pipes = [n for n in G if node_types[n] is NodeType.DATA_PIPE]
         processors = [n for n in G if node_types[n] is NodeType.DATA_PROCESSOR]
         statistics = [n for n in G if node_types[n] is NodeType.DATA_STATISTIC]
         in_features = [n for n in G if node_types[n] is NodeType.INPUT_FEATURE]
@@ -97,7 +98,12 @@ class BaseTestProcessGraph(object):
             n for n in G if node_types[n] is NodeType.OUTPUT_FEATURE
         ]
         # make sure all data processors are present
-        assert len(pipe) == len(processors) + len(statistics)
+        assert len(pipe) == len(pipes) + len(processors) + len(statistics)
+        # test all data pipes
+        for node in pipes:
+            idx = node_index[node]
+            assert node_label[node] == type(pipe[idx]).__name__  # noqa: E721
+            assert isinstance(pipe[idx], DataPipe)
         # test all processors
         for node in processors:
             idx = node_index[node]
