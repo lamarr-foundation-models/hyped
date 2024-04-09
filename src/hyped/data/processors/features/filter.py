@@ -33,8 +33,8 @@ class FilterFeaturesConfig(BaseDataProcessorConfig):
     # don't keep input features
     keep_input_features: bool = False
     # feature keys to keep or remove
-    keep: None | FeatureKey | list[FeatureKey] = None
-    remove: None | FeatureKey | list[FeatureKey] = None
+    keep: None | list[FeatureKey] = None
+    remove: None | list[FeatureKey] = None
 
     @model_validator(mode="after")
     def _validate_arguments(cls, config):
@@ -83,20 +83,13 @@ class FilterFeatures(BaseDataProcessor[FilterFeaturesConfig]):
 
         keep = self.config.keep
         remove = self.config.remove
-
-        if keep is not None and isinstance(keep, FeatureKey):
-            keep = [keep]
-
-        if remove is not None and isinstance(remove, FeatureKey):
-            remove = [remove]
-
         # make sure all features exist
         for k in keep if keep is not None else remove:
             # TODO: currently only supports string keys
             if not (len(k) == 1 and isinstance(k[0], str)):
                 raise NotImplementedError(
-                    "Currently only simple string keys are "
-                    "supported by the filter processor"
+                    "Currently only one-entry string keys are "
+                    "supported by the filter processor, got %s" % str(k)
                 )
 
             if k[0] not in features:

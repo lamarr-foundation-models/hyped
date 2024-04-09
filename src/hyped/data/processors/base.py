@@ -57,7 +57,11 @@ class BaseDataProcessorConfig(BaseConfig):
         yield from chain.from_iterable(
             map(
                 _iter_feature_keys,
-                (getattr(self, k) for k in self.model_fields.keys()),
+                (
+                    getattr(self, k)
+                    for k in self.model_fields.keys()
+                    if k not in type(self)._IGNORE_KEYS_FROM_FIELDS
+                ),
             )
         )
 

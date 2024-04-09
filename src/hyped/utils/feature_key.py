@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from enum import Enum
 from itertools import chain
 from typing import Any, Iterable
 
@@ -80,7 +81,7 @@ class FeatureKey(tuple[str | int | slice]):
         return FeatureKey(*key)
 
     def __new__(self, *key: str | int | slice) -> None:
-        if len(key) == 1 and isinstance(key[0], (tuple)):
+        if len(key) == 1 and isinstance(key[0], tuple):
             return FeatureKey.from_tuple(key[0])
 
         if len(key) > 0 and not isinstance(key[0], str):
@@ -88,6 +89,9 @@ class FeatureKey(tuple[str | int | slice]):
                 "First entry of a feature key must be a string, got %s."
                 % repr(key[0])
             )
+
+        # unpack enums
+        key = tuple(k.value if isinstance(k, Enum) else k for k in key)
 
         for key_entry in key:
             if not isinstance(key_entry, (str, int, slice)):

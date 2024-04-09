@@ -53,6 +53,7 @@ class ConstantGeneratorDataProcessor(ConstantDataProcessor):
 class TestDataProcessorConfig(object):
     def test_extract_feature_keys(self):
         class Config(BaseDataProcessorConfig):
+            _IGNORE_KEYS_FROM_FIELDS = ["ignore_key"]
             # simple keys
             a: FeatureKey = "a"
             b: FeatureKey = "b"
@@ -70,6 +71,7 @@ class TestDataProcessorConfig(object):
             x: str = "x"
             y: None | int = 1
             z: tuple[str] = ("z",)
+            ignore_key: FeatureKey = "ignore"
 
         assert set(list(Config().required_feature_keys)) == {
             FeatureKey("a"),
@@ -97,6 +99,9 @@ class TestDataProcessorConfig(object):
         }
         assert FeatureKey("c") in set(
             list(Config(c="c").required_feature_keys)
+        )
+        assert FeatureKey("ignore_key") not in set(
+            list(Config().required_feature_keys)
         )
 
 
