@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 import multiprocessing as mp
-import os
+import multiprocessing.context
+import multiprocessing.managers
+import uuid
 import warnings
 from typing import Any, Iterable
 
-from hyped.utils.executor import SubprocessExecutor
+from hyped.utils.lazy import LazyInstance, LazySharedInstance
+
+
+class SyncManager(mp.managers.SyncManager):
+    """Custom Sync Manager with special registered types"""
 
 
 class StatisticsReportStorage(object):
@@ -20,29 +26,15 @@ class StatisticsReportStorage(object):
             values and locks between processes
     """
 
-    def __init__(self, manager: mp.Manager):
-        # safe main process id
-        self.pid = os.getpid()
+    def __init__(self):
+        global _manager
         # create shared storage for statistic values and locks
-        self.manager = manager
-        self.stats = self.manager.dict()
-        self.locks = self.manager.dict()
-        # create a subprocess executor used to interact
-        # with the values and locks storages
-        self.executor = SubprocessExecutor()
+        self.stats = _manager.dict()
+        self.locks = _manager.dict()
         # keep track of all registered keys
-        self.registered_keys: set[str] = set()
-
-    def __del__(self) -> None:
-        # make sure to stop the executor when the storage is deleted
-        if hasattr(self, "executor"):
-            self.executor.stop()
-
-    def _getter(self, d: dict[str, Any], k: str) -> Any:
-        return self.executor(f=d.__getitem__, args=(k,))
-
-    def _setter(self, d: dict[str, Any], k: str, v: Any) -> None:
-        return self.executor(f=d.__setitem__, args=(k, v), return_output=False)
+        self.registered_keys: set[str] = _manager.set()
+        # create unique id for instance comparissons accross processes
+        self._uuid = uuid.uuid4()
 
     def register(self, key: str, init_val: Any) -> None:
         """Register a statistic key to the storage
@@ -57,12 +49,6 @@ class StatisticsReportStorage(object):
             key (str): statistic key under which to store the statistic
             init_val (Any): initial value of the statistic
         """
-        # can only register keys from main process
-        if os.getpid() != self.pid:
-            raise RuntimeError(
-                "Error while registering statistic key `%s`: "
-                "cannot register key from subprocess" % key
-            )
         # key already registered
         if key in self:
             raise RuntimeError(
@@ -70,10 +56,10 @@ class StatisticsReportStorage(object):
                 "Key already registered" % key
             )
         # create lock for the statistic
-        lock = self.manager.RLock()
+        lock = _manager.RLock()
         # write initial value and lock to dicts
-        self._setter(self.stats, key, init_val)
-        self._setter(self.locks, key, lock)
+        self.stats[key] = init_val
+        self.locks[key] = lock
         # add key to registered keys
         self.registered_keys.add(key)
 
@@ -93,7 +79,7 @@ class StatisticsReportStorage(object):
                 "Statistic key `%s` not registered" % key
             )
         # get lock for key
-        return self._getter(self.locks, key)
+        return self.locks[key]
 
     def get(self, key: str) -> Any:
         """Get the value of a given statistic
@@ -111,7 +97,7 @@ class StatisticsReportStorage(object):
                 "Statistic key `%s` not registered" % key
             )
         # get statistic value for key
-        return self._getter(self.stats, key)
+        return self.stats[key]
 
     def set(self, key: str, val: Any) -> None:
         """Set the value of a given statistic
@@ -128,7 +114,15 @@ class StatisticsReportStorage(object):
             )
         # update value in statistics dict
         with self.get_lock_for(key):
-            self._setter(self.stats, key, val)
+            self.stats[key] = val
+
+    def __hash__(self):
+        return hash(self._uuid)
+
+    def __eq__(self, other):
+        return isinstance(other, StatisticsReportStorage) and (
+            self._uuid == other._uuid
+        )
 
     def __getitem__(self, key: str) -> Any:
         return self.get(key)
@@ -148,26 +142,22 @@ class StatisticsReportManager(object):
     i.e. reports to which statistics should be written.
     """
 
-    def __init__(self):
-        self._manager: None | mp.Manager = None
-        self._active_reports: set[StatisticsReportStorage] = set()
+    def __init__(self) -> None:
+        # create set of active reports
+        self._active_reports: set[StatisticsReportStorage] = self.manager.set()
 
     @property
-    def manager(self) -> mp.Manager:
+    def manager(self) -> SyncManager:
         """Multiprocessing manager instance"""
-        # TODO: when should the manager be shutdown
-        # create new manager if needed
-        if self._manager is None:
-            self._manager = mp.Manager()
-        # return the current manager
-        return self._manager
+        global _manager
+        return _manager
 
-    @property
     def is_empty(self) -> bool:
         """Boolean indicating whether there are any reports active"""
-        return len(self._active_reports) == 0
+        return (self._active_reports is None) or (
+            len(self._active_reports) == 0
+        )
 
-    @property
     def reports(self) -> Iterable[StatisticsReportStorage]:
         """Iterator over active report storages
 
@@ -179,7 +169,7 @@ class StatisticsReportManager(object):
         """
 
         # warn when no reports are active
-        if self.is_empty:
+        if self.is_empty():
             warnings.warn(
                 "No active statistic reports found. Computed statistics will "
                 "not be tracked. Active a `StatisticsReport` instance to "
@@ -195,7 +185,7 @@ class StatisticsReportManager(object):
         Returns:
             storage (StatisticReportStorage): new storage instance
         """
-        return StatisticsReportStorage(self.manager)
+        return StatisticsReportStorage()
 
     def is_active(self, report: StatisticsReportStorage) -> bool:
         """Check if a given statistic report storage is active
@@ -226,10 +216,6 @@ class StatisticsReportManager(object):
         """
         if self.is_active(report):
             self._active_reports.remove(report)
-
-
-# create an instance of the statistics report manager
-statistics_report_manager = StatisticsReportManager()
 
 
 class StatisticsReport(object):
@@ -287,3 +273,75 @@ class StatisticsReport(object):
         return "\n".join(
             ["%s: %s" % (k, self.get(k)) for k in self.registered_keys]
         )
+
+
+# register types to sync manager
+SyncManager.register(
+    "set",
+    set,
+    exposed=[
+        "add",
+        "clear",
+        "copy",
+        "difference",
+        "difference_update",
+        "discard",
+        "intersection",
+        "intersection_update",
+        "isdisjoint",
+        "issubset",
+        "pop",
+        "remove",
+        "symmetric_difference",
+        "symmetric_difference_update",
+        "union",
+        "update",
+        "__or__",
+        "__rand__",
+        "__ror__",
+        "__rsub__",
+        "__rxor__",
+        "__sub__",
+        "__xor__",
+        "__and__",
+        "__eq__",
+        "__iand__",
+        "__ior__",
+        "__isub__",
+        "__ixor__",
+        "__len__",
+        "__contains__",
+        "__iter__",
+    ],
+)
+SyncManager.register(
+    "StatisticsReportManager",
+    StatisticsReportManager,
+    exposed=[
+        "is_empty",
+        "reports",
+        "new_statistics_report_storage",
+        "is_active",
+        "activate",
+        "deactivate",
+    ],
+)
+
+
+def _statistics_report_manager_factory() -> StatisticsReportManager:
+    global _manager
+    # create a shared instance of the statistics report manager
+    return _manager.StatisticsReportManager()
+
+
+def _sync_manager_factory() -> SyncManager:
+    manager = SyncManager(ctx=mp.context.DefaultContext)
+    manager.start()
+    return manager
+
+
+# create global variables as lazy instances
+_manager: SyncManager = LazyInstance[SyncManager](_sync_manager_factory)
+statistics_report_manager = LazySharedInstance[StatisticsReportManager](
+    "statistics_report_manager", _statistics_report_manager_factory
+)
