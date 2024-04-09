@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import operator
 import warnings
 from collections import deque
 from copy import deepcopy
@@ -14,8 +13,8 @@ from torch.utils.data import get_worker_info
 from hyped.data.processors.statistics.base import BaseDataStatistic
 from hyped.data.processors.statistics.report import statistics_report_manager
 from hyped.utils.arrow import convert_features_to_arrow_schema
-from hyped.utils.feature_access import FeatureKey, join_feature_mappings
 from hyped.utils.feature_checks import check_feature_equals
+from hyped.utils.feature_key import FeatureKey, join_features
 from hyped.utils.utils import is_package_installed
 
 from .processors.base import BaseDataProcessor
@@ -102,7 +101,7 @@ class DataPipe(list):
         #       features processor
         # TODO: fix this by removing all features that are not
         #       in the output features
-        return reduce(join_feature_mappings, (p.new_features for p in self))
+        return reduce(join_features, (p.new_features for p in self))
 
     @property
     def out_features(self) -> datasets.Features:
@@ -113,13 +112,10 @@ class DataPipe(list):
         return self[-1].out_features if len(self) > 0 else self.in_features
 
     @property
-    def required_feature_keys(self) -> Iterable[FeatureKey]:
+    def required_feature_keys(self) -> set[FeatureKey]:
         """Iterable over all required feature keys"""
-        # TODO: remove double feature keys
         # TODO: remove required feature keys generated within the data pipe
-        return reduce(
-            operator.add, (proc.required_feature_keys for proc in self)
-        )
+        return reduce(set.union, (proc.required_feature_keys for proc in self))
 
     def batch_process(
         self,
@@ -188,7 +184,7 @@ class DataPipe(list):
     ) -> pa.Table:
         # convert to pyarrow table with correct schema
         return pa.table(
-            data=self.batch_process(examples, index, rank),
+            data=dict(self.batch_process(examples, index, rank)),
             schema=convert_features_to_arrow_schema(self.out_features),
         )
 

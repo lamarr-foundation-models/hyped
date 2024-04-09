@@ -6,6 +6,7 @@ from hyped.data.processors.features.format import (
     FormatFeatures,
     FormatFeaturesConfig,
 )
+from hyped.utils.feature_key import FeatureKey
 from tests.data.processors.test_base import (
     ConstantDataProcessor,
     ConstantDataProcessorConfig,
@@ -28,7 +29,7 @@ from tests.data.processors.test_base import (
                     )
                 ]
             ),
-            ["x", "y"],
+            [FeatureKey("x"), FeatureKey("y")],
         )
     ],
 )

@@ -2,25 +2,19 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from itertools import chain
-from types import GeneratorType, UnionType
-from typing import (
-    Any,
-    ClassVar,
-    Generator,
-    GenericAlias,
-    Iterable,
-    Literal,
-    TypeVar,
-    Union,
-    get_args,
-    get_origin,
-)
+from types import GeneratorType
+from typing import Any, ClassVar, Generator, Iterable, TypeVar
 
 from datasets import Features
 from datasets.iterable_dataset import _batch_to_examples
 
 from hyped.base.config import BaseConfig, BaseConfigurable
-from hyped.utils.feature_key import FeatureKey, FeatureKeyCollection
+from hyped.utils.feature_key import (
+    FeatureKey,
+    FeatureKeyCollection,
+    join_batches,
+    join_features,
+)
 
 
 class BaseDataProcessorConfig(BaseConfig):
@@ -156,16 +150,16 @@ class BaseDataProcessor(BaseConfigurable[T], ABC):
         return self.out_features
 
     @property
-    def required_feature_keys(self) -> list[FeatureKey]:
+    def required_feature_keys(self) -> set[FeatureKey]:
         """Input dataset feature keys required for execution of the processor.
 
         These must be contained in the `in_features`.
 
         Returns:
-            feature_keys (list[FeatureKey]): list of required feature keys
+            feature_keys (set[FeatureKey]): unique set of required feature keys
         """
         # TODO: make list unique
-        return list(self.config.required_feature_keys)
+        return set(list(self.config.required_feature_keys))
 
     @property
     def in_features(self) -> Features:
@@ -237,7 +231,7 @@ class BaseDataProcessor(BaseConfigurable[T], ABC):
             features (Features): complete output dataset features
         """
         if self.config.keep_input_features:
-            return join_feature_mappings(self.in_features, self.new_features)
+            return join_features(self.in_features, self.new_features)
         else:
             return self.new_features
 
@@ -286,7 +280,7 @@ class BaseDataProcessor(BaseConfigurable[T], ABC):
                 index = [index[i] for i in src_index]
 
             # add input features to output batch
-            out_batch = join_example_batches(examples, out_batch)
+            out_batch = join_batches(examples, out_batch)
 
         # return output examples
         return (out_batch, index) if return_index else out_batch

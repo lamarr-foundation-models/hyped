@@ -32,6 +32,12 @@ class TestFeatureKey(object):
             key[1:], FeatureKey
         )
 
+        # test hashing
+        hash(FeatureKey("x"))
+        hash(FeatureKey("x", 0))
+        hash(FeatureKey("x", 0, slice(None)))
+        hash(FeatureKey("x", 0, slice(1, 5)))
+
     @pytest.mark.parametrize(
         "key,is_simple",
         [

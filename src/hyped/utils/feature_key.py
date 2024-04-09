@@ -18,6 +18,47 @@ from hyped.utils.feature_checks import (
 )
 
 
+def join_features(A: Features, B: Features) -> Features:
+    """Join two feature mappings
+
+    Arguments:
+        A (Features): features A
+        B (Features): features B
+
+    Returns:
+        joined_features (Features): joined features (A | B)
+    """
+    return Features(A | B)
+
+
+def join_examples(A: dict[str, Any], B: dict[str, Any]) -> dict[str, Any]:
+    """Join two examples
+
+    Arguments:
+        A (dict[str, Any]): example A
+        B (dict[str, Any]): example B
+
+    Returns:
+        joined_example (dict[str, Any]): joined example (A | B)
+    """
+    return A | B
+
+
+def join_batches(
+    A: dict[str, list[Any]], B: dict[str, list[Any]]
+) -> dict[str, list[Any]]:
+    """Join two batches of examples
+
+    Arguments:
+        A (dict[str, list[Any]]): example A
+        B (dict[str, list[Any]]): example B
+
+    Returns:
+        joined_example (dict[str, list[Any]]): joined example (A | B)
+    """
+    return A | B
+
+
 def _iter_keys_in_features(
     features: FeatureType, max_depth: int, max_seq_len_to_unpack: int
 ) -> Iterable[tuple[str | int | slice]]:
@@ -114,6 +155,14 @@ class FeatureKey(tuple[str | int | slice]):
 
     def __repr__(self) -> str:
         return str(self)
+
+    def __hash__(self) -> str:
+        return hash(
+            tuple(
+                (k.start, k.stop, k.step) if isinstance(k, slice) else k
+                for k in self
+            )
+        )
 
     @classmethod
     def __get_pydantic_core_schema__(
