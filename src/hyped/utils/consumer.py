@@ -1,5 +1,6 @@
 import multiprocessing as mp
 import os
+import traceback
 from abc import ABC, abstractmethod
 from queue import Empty
 from time import time
@@ -11,6 +12,64 @@ import torch.utils.data._utils.worker
 from torch.utils.data._utils.worker import WorkerInfo
 from tqdm.auto import tqdm
 from tqdm.std import EMA
+
+
+class ConsumerProcessException(Exception):
+    def __init__(self, rank: int, exc: Exception, tb: str) -> None:
+        self.rank = rank
+        self.exc = exc
+        self.tb = tb
+
+    def short_desc(self) -> str:
+        return "Exception in Process %i: %s: %s" % (
+            self.rank,
+            type(self.exc).__name__,
+            str(self.exc),
+        )
+
+    def __str__(self) -> str:
+        return "Exception in Process %i: %s" % (self.rank, self.tb)
+
+
+class ConsumerProcessExceptionGroup(Exception):
+    def __init__(self, exc_group: list[ConsumerProcessException]) -> None:
+        self.exc_group = exc_group
+
+    def __str__(self) -> str:
+        return (
+            "\n"
+            + "\n\n".join(map(str, self.exc_group))
+            + (
+                "\n\nSummary: %i Exception(s) occured while consuming the "
+                "dataset:\n\n %s"
+                % (
+                    len(self.exc_group),
+                    "\n".join([e.short_desc() for e in self.exc_group]),
+                )
+            )
+        )
+
+
+class ConsumerProcess(mp.Process):
+    def __init__(self, *args, **kwargs):
+        mp.Process.__init__(self, *args, **kwargs)
+        self._pconn, self._cconn = mp.Pipe(duplex=False)
+        self._exception = None
+
+    def run(self):
+        try:
+            mp.Process.run(self)
+            self._cconn.send(None)
+        except Exception as e:
+            tb = traceback.format_exc()
+            self._cconn.send((e, tb))
+            raise e
+
+    @property
+    def exception(self) -> None | tuple[Exception, str]:
+        if self._pconn.poll():
+            self._exception = self._pconn.recv()
+        return self._exception
 
 
 class BaseDatasetConsumer(ABC):
@@ -85,7 +144,7 @@ class BaseDatasetConsumer(ABC):
         tqdm_conns = [mp.Pipe(duplex=False) for _ in range(num_proc)]
         # spawn all consumer workers and start them
         workers = [
-            mp.Process(
+            ConsumerProcess(
                 name="%s[worker_id=%i]" % (type(self).__name__, i),
                 target=self._worker_fn,
                 kwargs=dict(
@@ -107,6 +166,18 @@ class BaseDatasetConsumer(ABC):
         # wait for all consumer workers to finish
         for w in workers:
             w.join()
+
+        # check for errors in workers
+        errors = [
+            (r, w.exception)
+            for r, w in enumerate(workers)
+            if w.exception is not None
+        ]
+        errors = [ConsumerProcessException(r, e, tb) for r, (e, tb) in errors]
+
+        # raise exceptions catched in workers
+        if len(errors) > 0:
+            raise ConsumerProcessExceptionGroup(errors)
 
     def _tqdm(
         self, readers: list[mp.connection.Connection], total: int
