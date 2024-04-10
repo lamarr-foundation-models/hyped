@@ -159,7 +159,7 @@ class BaseDatasetConsumer(ABC):
             dt = t - pbar.last_print_t
             # compute examples throughput and update tqdm postfix
             if dn_examples != 0:
-                throughput = ema_dn(dn_examples) / ema_dt(dt)
+                throughput = ema_dn(dn_examples) / max(ema_dt(dt), 1e-5)
                 formatted_total_examples = (
                     "%d" if total_examples < 10**6 else "%.2e"
                 ) % total_examples
