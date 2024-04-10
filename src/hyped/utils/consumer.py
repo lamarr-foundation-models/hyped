@@ -129,12 +129,12 @@ class BaseDatasetConsumer(ABC):
                 the dataset to consume
         """
 
-        # get the number of processed to use
-        num_proc = self.get_num_proc(data)
-
         # convert dataset to iterable dataset
         if isinstance(data, datasets.Dataset):
             data = data.to_iterable_dataset(num_shards=self.num_proc)
+
+        # get the number of processed to use
+        num_proc = self.get_num_proc(data)
 
         # create the shard queue and fill it with all shard ids
         shard_queue = mp.Queue()
@@ -299,6 +299,10 @@ class BaseDatasetConsumer(ABC):
                 last_update_id = -1
                 last_update_time = time()
 
+                # set example id to invalid value to identify and handle
+                # empty dataset shards
+                example_id = -1
+
                 for example_id, (_, example) in enumerate(shard):
                     self.consume_example(
                         shard_id=shard_id,
@@ -312,6 +316,9 @@ class BaseDatasetConsumer(ABC):
                         last_update_time = time()
 
                 # send final update for current shard
+                # note that in case of an empty dataset shard the example id
+                # and last update id are both still set to the intial value
+                # of -1
                 tqdm_writer.send((True, example_id - last_update_id))
 
         finally:
