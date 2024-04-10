@@ -5,8 +5,8 @@ from typing import Literal
 from datasets import ClassLabel, Features
 
 from hyped.base.config import BaseConfig
-from hyped.utils.feature_access import FeatureKey, get_feature_at_key
-from hyped.utils.feature_checks import (
+from hyped.common.feature_access import FeatureKey, get_feature_at_key
+from hyped.common.feature_checks import (
     raise_feature_equals,
     raise_feature_is_sequence,
 )

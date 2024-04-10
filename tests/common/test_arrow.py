@@ -1,8 +1,8 @@
 import pytest
 from datasets import Features, Sequence, Value
 
-from hyped.utils.arrow import convert_features_to_arrow_schema
-from hyped.utils.feature_checks import check_feature_equals
+from hyped.common.arrow import convert_features_to_arrow_schema
+from hyped.common.feature_checks import check_feature_equals
 
 
 @pytest.mark.parametrize(

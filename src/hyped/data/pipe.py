@@ -7,9 +7,9 @@ import datasets
 import pyarrow as pa
 from torch.utils.data import get_worker_info
 
+from hyped.common.arrow import convert_features_to_arrow_schema
 from hyped.data.processors.statistics.base import BaseDataStatistic
 from hyped.data.processors.statistics.report import statistics_report_manager
-from hyped.utils.arrow import convert_features_to_arrow_schema
 
 from .processors.base import BaseDataProcessor
 

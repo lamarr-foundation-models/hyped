@@ -6,13 +6,13 @@ from datasets import Features
 from numpy.typing import NDArray
 from pydantic import Field
 
+from hyped.common.feature_checks import (
+    get_sequence_length,
+    raise_feature_is_sequence,
+)
 from hyped.data.processors.statistics.value.hist import (
     Histogram,
     HistogramConfig,
-)
-from hyped.utils.feature_checks import (
-    get_sequence_length,
-    raise_feature_is_sequence,
 )
 
 # TODO: write tests for sequence length histogram

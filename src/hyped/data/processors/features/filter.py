@@ -3,11 +3,11 @@ from typing import Any
 from datasets import Features
 from pydantic import model_validator
 
+from hyped.common.feature_key import FeatureKey
 from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_key import FeatureKey
 
 
 class FilterFeaturesConfig(BaseDataProcessorConfig):

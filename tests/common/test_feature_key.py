@@ -3,8 +3,8 @@ from contextlib import nullcontext
 import pytest
 from datasets import Features, Sequence, Value
 
-from hyped.utils.feature_checks import check_feature_equals
-from hyped.utils.feature_key import FeatureKey, FeatureKeyCollection
+from hyped.common.feature_checks import check_feature_equals
+from hyped.common.feature_key import FeatureKey, FeatureKeyCollection
 
 
 class TestFeatureKey(object):

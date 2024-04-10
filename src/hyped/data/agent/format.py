@@ -5,12 +5,12 @@ from typing import Any
 
 from datasets import Dataset, Features
 
+from hyped.common.feature_access import FeatureKey
 from hyped.data.pipe import DataPipe
 from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_access import FeatureKey
 
 
 # TODO: move this functionality into the data pipe memory class

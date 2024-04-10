@@ -3,25 +3,25 @@ from typing import Any
 
 from datasets import Features, Sequence, Value
 
-from hyped.data.processors.base import (
-    BaseDataProcessor,
-    BaseDataProcessorConfig,
-)
-from hyped.utils.feature_checks import (
+from hyped.common.feature_checks import (
     INDEX_TYPES,
     get_sequence_feature,
     get_sequence_length,
     raise_feature_is_sequence,
     raise_features_align,
 )
-from hyped.utils.feature_key import FeatureKey
-from hyped.utils.spans import (
+from hyped.common.feature_key import FeatureKey
+from hyped.data.processors.base import (
+    BaseDataProcessor,
+    BaseDataProcessorConfig,
+)
+
+from .common import (
     ResolveOverlapsStrategy,
+    SpansOutputs,
     make_spans_exclusive,
     resolve_overlaps,
 )
-
-from .outputs import SpansOutputs
 
 
 class ResolveSpanOverlapsConfig(BaseDataProcessorConfig):
@@ -41,7 +41,7 @@ class ResolveSpanOverlapsConfig(BaseDataProcessorConfig):
             the strategy to apply when resolving the overlaps. Defaults to
             `ResolveOverlapsStrategy.APPROX` which aims to minimize the
             number of spans to remove. For other options please refer to
-            `hyped.utils.spans.ResolveOverlapsStrategy`.
+            `hyped.data.processors.spans.ResolveOverlapsStrategy`.
     """
 
     # span sequence

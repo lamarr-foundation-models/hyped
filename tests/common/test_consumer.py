@@ -5,7 +5,7 @@ import datasets
 import pytest
 from torch.utils.data import get_worker_info
 
-from hyped.utils.consumer import (
+from hyped.common.consumer import (
     BaseDatasetConsumer,
     ConsumerProcessExceptionGroup,
 )

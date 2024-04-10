@@ -3,7 +3,7 @@ from itertools import compress
 import pytest
 from datasets import Features, Sequence, Value
 
-from hyped.data.processors.spans.outputs import SpansOutputs
+from hyped.data.processors.spans.common import SpansOutputs
 from hyped.data.processors.spans.overlaps import (
     ResolveSpanOverlaps,
     ResolveSpanOverlapsConfig,

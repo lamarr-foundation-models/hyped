@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 import _io
 from torch.utils.data._utils.worker import get_worker_info
 
-from hyped.utils.consumer import BaseDatasetConsumer
+from hyped.common.consumer import BaseDatasetConsumer
 
 
 class BaseDatasetWriter(BaseDatasetConsumer, ABC):

@@ -5,11 +5,11 @@ import numpy as np
 from datasets import Features
 from numpy.typing import NDArray
 
+from hyped.common.feature_checks import raise_feature_is_sequence
 from hyped.data.processors.statistics.value.hist import (
     Histogram,
     HistogramConfig,
 )
-from hyped.utils.feature_checks import raise_feature_is_sequence
 
 # TODO: write tests for sequence value histogram
 

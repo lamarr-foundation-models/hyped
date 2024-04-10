@@ -9,7 +9,7 @@ from datasets import Features
 from datasets.iterable_dataset import _batch_to_examples
 
 from hyped.base.config import BaseConfig, BaseConfigurable
-from hyped.utils.feature_key import FeatureKey, FeatureKeyCollection
+from hyped.common.feature_key import FeatureKey, FeatureKeyCollection
 
 
 class BaseDataProcessorConfig(BaseConfig):

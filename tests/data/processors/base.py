@@ -7,9 +7,9 @@ import pyarrow as pa
 import pytest
 from datasets import Dataset, Features, Value
 
+from hyped.common.arrow import convert_features_to_arrow_schema
 from hyped.data.pipe import DataPipe
 from hyped.data.processors.base import BaseDataProcessor
-from hyped.utils.arrow import convert_features_to_arrow_schema
 
 
 class BaseTestDataProcessor(ABC):

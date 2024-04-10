@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from hyped.utils.lazy import LazyInstance, LazySharedInstance
+from hyped.common.lazy import LazyInstance, LazySharedInstance
 
 
 def factory(pid=None):

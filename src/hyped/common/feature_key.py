@@ -9,7 +9,7 @@ from datasets.iterable_dataset import _batch_to_examples
 from pydantic import GetCoreSchemaHandler
 from pydantic_core import CoreSchema, core_schema
 
-from hyped.utils.feature_checks import (
+from .feature_checks import (
     check_feature_equals,
     get_sequence_feature,
     get_sequence_length,
@@ -456,10 +456,10 @@ class FeatureKey(tuple[str | int | slice]):
                 when set to a positive integer, the nested structure
                 of the feature mapping will only be traversed to the
                 specified depth. The maximum length of each key is
-                restricted by this value. Defaults to -1.
+                restricted by that value. Defaults to -1.
             max_seq_len_to_unpack (int):
                 upper threshold of length to flatten sequences. If the
-                sequence length exceeds this threshold, the sequence
+                sequence length exceeds that threshold, the sequence
                 will not be flattened
 
         Returns:

@@ -1,14 +1,14 @@
 from datasets import Features
 from pydantic import Field
 
-from hyped.data.processors.features.format import (
-    FormatFeatures,
-    FormatFeaturesConfig,
-)
-from hyped.utils.feature_key import (
+from hyped.common.feature_key import (
     FeatureKey,
     FeatureKeyCollection,
     _iter_keys_in_features,
+)
+from hyped.data.processors.features.format import (
+    FormatFeatures,
+    FormatFeaturesConfig,
 )
 
 

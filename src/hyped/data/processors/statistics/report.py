@@ -7,7 +7,7 @@ import uuid
 import warnings
 from typing import Any, Iterable
 
-from hyped.utils.lazy import LazyInstance, LazySharedInstance
+from hyped.common.lazy import LazyInstance, LazySharedInstance
 
 
 class SyncManager(mp.managers.SyncManager):

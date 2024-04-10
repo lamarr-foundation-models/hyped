@@ -1,7 +1,7 @@
 import pytest
 from datasets import Features, Sequence, Value
 
-from hyped.utils.feature_checks import (
+from hyped.common.feature_checks import (
     check_feature_equals,
     check_feature_is_sequence,
     check_object_matches_feature,

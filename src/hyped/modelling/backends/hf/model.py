@@ -11,18 +11,18 @@ from transformers import (
     AutoModelForTokenClassification,
 )
 
+from hyped.common.feature_access import get_feature_at_key
+from hyped.common.feature_checks import (
+    INT_TYPES,
+    UINT_TYPES,
+    check_feature_exists,
+    raise_feature_is_sequence,
+)
 from hyped.modelling.backends.base import BaseModel, BaseModelConfig
 from hyped.modelling.heads import (
     CausalLanguageModellingHeadConfig,
     ClassificationHeadConfig,
     TaggingHeadConfig,
-)
-from hyped.utils.feature_access import get_feature_at_key
-from hyped.utils.feature_checks import (
-    INT_TYPES,
-    UINT_TYPES,
-    check_feature_exists,
-    raise_feature_is_sequence,
 )
 
 # map head config type to the corresponding auto model type

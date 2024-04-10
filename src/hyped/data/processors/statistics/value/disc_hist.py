@@ -4,18 +4,18 @@ from typing import Any
 
 from datasets import ClassLabel, Features, Value
 
-from hyped.data.processors.statistics.base import (
-    BaseDataStatistic,
-    BaseDataStatisticConfig,
-)
-from hyped.data.processors.statistics.report import StatisticsReportStorage
-from hyped.utils.feature_checks import (
+from hyped.common.feature_checks import (
     INT_TYPES,
     UINT_TYPES,
     check_feature_equals,
     raise_feature_equals,
 )
-from hyped.utils.feature_key import FeatureKey
+from hyped.common.feature_key import FeatureKey
+from hyped.data.processors.statistics.base import (
+    BaseDataStatistic,
+    BaseDataStatisticConfig,
+)
+from hyped.data.processors.statistics.report import StatisticsReportStorage
 
 # TODO: write tests for discrete sequence value histogram
 

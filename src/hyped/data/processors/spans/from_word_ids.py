@@ -3,15 +3,15 @@ from typing import Any
 import numpy as np
 from datasets import Features, Sequence, Value
 
+from hyped.common.feature_checks import INDEX_TYPES, raise_feature_is_sequence
+from hyped.common.feature_key import FeatureKey
 from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
 from hyped.data.processors.tokenizers.hf import HuggingFaceTokenizerOutputs
-from hyped.utils.feature_checks import INDEX_TYPES, raise_feature_is_sequence
-from hyped.utils.feature_key import FeatureKey
 
-from .outputs import SpansOutputs
+from .common import SpansOutputs
 
 
 class TokenSpansFromWordIdsConfig(BaseDataProcessorConfig):

@@ -5,7 +5,7 @@ from hyped.data.processors.spans.apply_idx_spans import (
     ApplyIndexSpans,
     ApplyIndexSpansConfig,
 )
-from hyped.data.processors.spans.outputs import SpansOutputs
+from hyped.data.processors.spans.common import SpansOutputs
 from tests.data.processors.base import BaseTestDataProcessor
 
 

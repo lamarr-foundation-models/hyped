@@ -1,11 +1,11 @@
 import pytest
 from datasets import Features, Sequence, Value
 
+from hyped.common.feature_key import FeatureKey
 from hyped.data.processors.features.format import (
     FormatFeatures,
     FormatFeaturesConfig,
 )
-from hyped.utils.feature_key import FeatureKey
 from tests.data.processors.base import BaseTestDataProcessor
 
 

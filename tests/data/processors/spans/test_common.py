@@ -4,7 +4,7 @@ from itertools import compress
 import numpy as np
 import pytest
 
-from hyped.utils.spans import (
+from hyped.data.processors.spans.common import (
     ResolveOverlapsStrategy,
     compute_spans_overlap_matrix,
     make_spans_exclusive,

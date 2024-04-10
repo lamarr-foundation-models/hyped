@@ -6,7 +6,7 @@ import _io
 import datasets
 from torch.utils.data._utils.worker import get_worker_info
 
-from hyped.utils.feature_checks import check_feature_equals
+from hyped.common.feature_checks import check_feature_equals
 
 from .base import BaseDatasetWriter
 

@@ -3,19 +3,18 @@ from typing import Any
 import numpy as np
 from datasets import Features
 
-from hyped.data.processors.base import (
-    BaseDataProcessor,
-    BaseDataProcessorConfig,
-)
-from hyped.utils.feature_checks import (
+from hyped.common.feature_checks import (
     INDEX_TYPES,
     raise_feature_is_sequence,
     raise_features_align,
 )
-from hyped.utils.feature_key import FeatureKey
-from hyped.utils.spans import make_spans_exclusive
+from hyped.common.feature_key import FeatureKey
+from hyped.data.processors.base import (
+    BaseDataProcessor,
+    BaseDataProcessorConfig,
+)
 
-from .outputs import SpansOutputs
+from .common import SpansOutputs, make_spans_exclusive
 
 
 class LocalToGlobalOffsetsConfig(BaseDataProcessorConfig):

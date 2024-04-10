@@ -8,17 +8,17 @@ from typing import Any
 import numpy as np
 from datasets import Features
 
-from hyped.data.processors.statistics.base import (
-    BaseDataStatistic,
-    BaseDataStatisticConfig,
-)
-from hyped.utils.feature_checks import (
+from hyped.common.feature_checks import (
     FLOAT_TYPES,
     INT_TYPES,
     UINT_TYPES,
     raise_feature_equals,
 )
-from hyped.utils.feature_key import FeatureKey
+from hyped.common.feature_key import FeatureKey
+from hyped.data.processors.statistics.base import (
+    BaseDataStatistic,
+    BaseDataStatisticConfig,
+)
 
 
 @dataclass

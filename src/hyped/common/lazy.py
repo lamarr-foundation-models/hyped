@@ -50,7 +50,7 @@ class LazySharedInstance(LazyInstance[T]):
         # environment keys used to share the object
         env_key = "__HYPED_SHARED_INSTANCE_%s" % identifier
 
-        # this is executed in the parent process only
+        # that is executed in the parent process only
         if env_key not in os.environ:
             # file name storing object
             # mark as registered but not instantiated yet

@@ -114,7 +114,7 @@ def check_feature_is_sequence(
             the expected sequence value type or a target
             of valid value types. If the value type is a list or
             tuple of length one, it is still considered to be a
-            feature and not a list of features as this is also a
+            feature and not a list of features as that is also a
             valid definition of a sequence feature type. If the
             value type is set to None, the item type is not
             checked.
@@ -223,7 +223,7 @@ def raise_feature_equals(
             the target feature or list of valid target features.
             If the target is a list or tuple of length one that
             it is still considered to be a feature and not a list
-            of features as this is also a definition of a sequence
+            of features as that is also a definition of a sequence
             feature type.
 
     Raises:

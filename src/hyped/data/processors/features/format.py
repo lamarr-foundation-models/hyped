@@ -2,11 +2,11 @@ from typing import Any, ClassVar
 
 from datasets import Features
 
+from hyped.common.feature_key import FeatureKeyCollection
 from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_key import FeatureKeyCollection
 
 
 class FormatFeaturesConfig(BaseDataProcessorConfig):

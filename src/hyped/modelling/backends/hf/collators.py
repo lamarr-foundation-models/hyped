@@ -11,13 +11,13 @@ from transformers.data.data_collator import (
 )
 
 from hyped.base.config import BaseConfig
+from hyped.common.feature_access import FeatureKey, pop_value_at_key
 from hyped.modelling.heads import (
     BaseHeadConfig,
     CausalLanguageModellingHeadConfig,
     ClassificationHeadConfig,
     TaggingHeadConfig,
 )
-from hyped.utils.feature_access import FeatureKey, pop_value_at_key
 
 
 @dataclass

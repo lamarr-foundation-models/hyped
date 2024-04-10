@@ -20,6 +20,10 @@ from hyped.data.processors.spans.apply_idx_spans import (
     ApplyIndexSpans,
     ApplyIndexSpansConfig,
 )
+from hyped.data.processors.spans.common import (
+    LabelledSpansOutputs,
+    SpansOutputs,
+)
 from hyped.data.processors.spans.from_bio import (
     TokenSpansFromBioTags,
     TokenSpansFromBioTagsConfig,
@@ -27,10 +31,6 @@ from hyped.data.processors.spans.from_bio import (
 from hyped.data.processors.spans.from_word_ids import (
     TokenSpansFromWordIds,
     TokenSpansFromWordIdsConfig,
-)
-from hyped.data.processors.spans.outputs import (
-    LabelledSpansOutputs,
-    SpansOutputs,
 )
 from hyped.data.processors.statistics.base import BaseDataStatistic
 from hyped.data.processors.statistics.value.mean_and_std import (

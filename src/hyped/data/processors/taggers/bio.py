@@ -4,19 +4,20 @@ from typing import Any
 import numpy as np
 from datasets import ClassLabel, Features, Sequence, Value
 
-from hyped.data.processors.base import (
-    BaseDataProcessor,
-    BaseDataProcessorConfig,
-)
-from hyped.utils.feature_checks import (
+from hyped.common.feature_checks import (
     INDEX_TYPES,
     get_sequence_feature,
     get_sequence_length,
     raise_feature_is_sequence,
     raise_features_align,
 )
-from hyped.utils.feature_key import FeatureKey
-from hyped.utils.spans import make_spans_exclusive
+from hyped.common.feature_key import FeatureKey
+from hyped.data.processors.base import (
+    BaseDataProcessor,
+    BaseDataProcessorConfig,
+)
+
+from ..spans.common import make_spans_exclusive
 
 
 class BioTaggerOutputs(str, Enum):

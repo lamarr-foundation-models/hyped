@@ -12,17 +12,17 @@ from transformers import (
 from transformers.tokenization_utils_base import TruncationStrategy
 from transformers.utils import PaddingStrategy
 
-from hyped.data.processors.base import (
-    BaseDataProcessor,
-    BaseDataProcessorConfig,
-)
-from hyped.utils.feature_checks import (
+from hyped.common.feature_checks import (
     INT_TYPES,
     UINT_TYPES,
     raise_feature_equals,
     raise_feature_is_sequence,
 )
-from hyped.utils.feature_key import FeatureKey
+from hyped.common.feature_key import FeatureKey
+from hyped.data.processors.base import (
+    BaseDataProcessor,
+    BaseDataProcessorConfig,
+)
 
 
 class HuggingFaceTokenizerOutputs(str, Enum):

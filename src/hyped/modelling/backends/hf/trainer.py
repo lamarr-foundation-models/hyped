@@ -4,6 +4,7 @@ from typing import Literal
 import transformers
 from torch.utils.data import Dataset
 
+from hyped.common.feature_access import unpack_feature_key
 from hyped.modelling.backends.base import BaseTrainer, BaseTrainerConfig
 from hyped.modelling.backends.hf.collators import (
     BaseHuggingFaceDataCollator,
@@ -11,7 +12,6 @@ from hyped.modelling.backends.hf.collators import (
     HuggingFaceMapKeysDataCollatorWrapper,
 )
 from hyped.modelling.backends.hf.model import HuggingFaceModel
-from hyped.utils.feature_access import unpack_feature_key
 
 
 @dataclass

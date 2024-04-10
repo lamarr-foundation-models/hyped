@@ -1,11 +1,11 @@
 import pytest
 from datasets import Features, Sequence, Value
 
+from hyped.data.processors.spans.common import SpansOutputs
 from hyped.data.processors.spans.loc_to_glob import (
     LocalToGlobalOffsets,
     LocalToGlobalOffsetsConfig,
 )
-from hyped.data.processors.spans.outputs import SpansOutputs
 from tests.data.processors.base import BaseTestDataProcessor
 
 

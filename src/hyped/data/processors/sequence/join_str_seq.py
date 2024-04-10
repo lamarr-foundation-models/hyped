@@ -2,12 +2,12 @@ from typing import Any
 
 from datasets import Features, Value
 
+from hyped.common.feature_checks import raise_feature_is_sequence
+from hyped.common.feature_key import FeatureKey
 from hyped.data.processors.base import (
     BaseDataProcessor,
     BaseDataProcessorConfig,
 )
-from hyped.utils.feature_checks import raise_feature_is_sequence
-from hyped.utils.feature_key import FeatureKey
 
 
 class JoinStringSequenceConfig(BaseDataProcessorConfig):

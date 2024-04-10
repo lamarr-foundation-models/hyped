@@ -3,15 +3,15 @@ from typing import Any
 
 from datasets import ClassLabel, Features, Value
 
-from hyped.data.processors.statistics.value.disc_hist import (
-    DiscreteHistogram,
-    DiscreteHistogramConfig,
-)
-from hyped.utils.feature_checks import (
+from hyped.common.feature_checks import (
     INT_TYPES,
     UINT_TYPES,
     check_feature_is_sequence,
     raise_feature_is_sequence,
+)
+from hyped.data.processors.statistics.value.disc_hist import (
+    DiscreteHistogram,
+    DiscreteHistogramConfig,
 )
 
 # TODO: write tests for sequence value histogram
