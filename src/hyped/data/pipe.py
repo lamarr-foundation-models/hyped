@@ -1,3 +1,4 @@
+import itertools
 import warnings
 from collections import deque
 from copy import deepcopy
@@ -55,8 +56,14 @@ class DataPipe(list):
         # save a copy of the input features
         self._in_features = deepcopy(features)
         # prepare all processors
-        for p in self:
-            features = p.prepare(features)
+        for i, p in enumerate(self):
+            try:
+                features = p.prepare(features)
+            except KeyError as e:
+                raise RuntimeError(
+                    f"Error while preparing {i}. processor {p} in processors:\n " + \
+                    "\n".join([f"{j}. {pr}" for j, pr in enumerate(self)])
+                ) from e
         # return final output features
         return self.out_features
 
@@ -144,13 +151,28 @@ class DataPipe(list):
                 "of the pipe is re-prepared with different features."
             )
         # apply each processor
+        examples = [examples]
         for p in self:
-            examples, index = p.batch_process(
-                examples, index, rank, return_index=True
-            )
-            # yield the output of the current data processor
-            yield examples
+            new_examples = []
+            for example in examples:
+                result = p.batch_process(
+                    example, index, rank, return_index=True
+                )
+                new_examples.append(self.get_example_batch(result))
 
+            new_exampels = list(itertools.chain.from_iterable(new_examples))
+            yield from new_exampels
+            # update examples for next processor
+            examples = new_exampels
+    def get_example_batch(self, result):
+        # yield the output of the current data processor
+        if isinstance(result, tuple):
+            examples, index = result
+            yield examples
+        else:
+            # we activley overwrite examples, as it is propagateded as intput to the next processor
+            for example, _ in result:
+                yield example
     def _batch_process_to_pyarrow(
         self,
         examples: dict[str, list[Any]],
