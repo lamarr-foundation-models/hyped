@@ -168,12 +168,12 @@ class DataPipe(list):
     def batch_to_batches(self, batch_or_batches) -> Generator:
         # yield the output of the current data processor
         if isinstance(batch_or_batches, tuple):
-            examples, _ = batch_or_batches
-            yield examples
+            batch, _ = batch_or_batches
+            yield batch
         else:
             # we activley overwrite examples, as it is propagateded as intput to the next processor
-            for example, _ in batch_or_batches:
-                yield example
+            for batch, _ in batch_or_batches:
+                yield batch
 
     def _batch_process_to_pyarrow(
         self,
