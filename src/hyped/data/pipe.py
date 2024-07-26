@@ -2,7 +2,7 @@ import itertools
 import warnings
 from collections import deque
 from copy import deepcopy
-from typing import Any, Generator, Iterable
+from typing import Any, Generator, Iterable, Tuple
 
 import datasets
 import pyarrow as pa
@@ -165,14 +165,14 @@ class DataPipe(list):
             # update examples for next processor
             examples = batch_generator
 
-    def batch_to_batches(self, result) -> Generator:
+    def batch_to_batches(self, batch_or_batches) -> Generator:
         # yield the output of the current data processor
-        if isinstance(result, tuple):
-            examples, index = result
+        if isinstance(batch_or_batches, tuple):
+            examples, _ = batch_or_batches
             yield examples
         else:
             # we activley overwrite examples, as it is propagateded as intput to the next processor
-            for example, _ in result:
+            for example, _ in batch_or_batches:
                 yield example
 
     def _batch_process_to_pyarrow(
