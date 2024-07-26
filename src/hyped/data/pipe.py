@@ -2,7 +2,7 @@ import itertools
 import warnings
 from collections import deque
 from copy import deepcopy
-from typing import Any, Iterable
+from typing import Any, Generator, Iterable
 
 import datasets
 import pyarrow as pa
@@ -153,18 +153,19 @@ class DataPipe(list):
         # apply each processor
         examples = [examples]
         for p in self:
-            new_examples = []
-            for example in examples:
-                result = p.batch_process(
-                    example, index, rank, return_index=True
+            batch_generators = []
+            for batch in examples:
+                batch_or_batches = p.batch_process(
+                    batch, index, rank, return_index=True
                 )
-                new_examples.append(self.get_example_batch(result))
+                batch_generators.append(self.batch_to_batches(batch_or_batches))
 
-            new_exampels = list(itertools.chain.from_iterable(new_examples))
-            yield from new_exampels
+            batch_generator = list(itertools.chain.from_iterable(batch_generators))
+            yield from batch_generator
             # update examples for next processor
-            examples = new_exampels
-    def get_example_batch(self, result):
+            examples = batch_generator
+
+    def batch_to_batches(self, result) -> Generator:
         # yield the output of the current data processor
         if isinstance(result, tuple):
             examples, index = result
@@ -173,6 +174,7 @@ class DataPipe(list):
             # we activley overwrite examples, as it is propagateded as intput to the next processor
             for example, _ in result:
                 yield example
+
     def _batch_process_to_pyarrow(
         self,
         examples: dict[str, list[Any]],
