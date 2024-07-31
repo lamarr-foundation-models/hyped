@@ -19,7 +19,7 @@ dependencies = [
     "transformers>=4.36.2",
     "networkx>=3.1",
     "matplotlib>=3.8.2",
-    "orjson>=3.9.4"
+    "orjson>=3.9.4",
 ]
 
 [project.optional-dependencies]

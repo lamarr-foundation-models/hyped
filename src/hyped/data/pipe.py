@@ -1,7 +1,8 @@
+import itertools
 import warnings
 from collections import deque
 from copy import deepcopy
-from typing import Any, Iterable
+from typing import Any, Generator, Iterable, Tuple
 
 import datasets
 import pyarrow as pa
@@ -55,8 +56,14 @@ class DataPipe(list):
         # save a copy of the input features
         self._in_features = deepcopy(features)
         # prepare all processors
-        for p in self:
-            features = p.prepare(features)
+        for i, p in enumerate(self):
+            try:
+                features = p.prepare(features)
+            except KeyError as e:
+                raise RuntimeError(
+                    f"Error while preparing {i}. processor {p} in processors:\n " + \
+                    "\n".join([f"{j}. {pr}" for j, pr in enumerate(self)])
+                ) from e
         # return final output features
         return self.out_features
 
@@ -144,12 +151,29 @@ class DataPipe(list):
                 "of the pipe is re-prepared with different features."
             )
         # apply each processor
+        examples = [examples]
         for p in self:
-            examples, index = p.batch_process(
-                examples, index, rank, return_index=True
-            )
-            # yield the output of the current data processor
-            yield examples
+            batch_generators = []
+            for batch in examples:
+                batch_or_batches = p.batch_process(
+                    batch, index, rank, return_index=True
+                )
+                batch_generators.append(self.batch_to_batches(batch_or_batches))
+
+            batch_generator = list(itertools.chain.from_iterable(batch_generators))
+            yield from batch_generator
+            # update examples for next processor
+            examples = batch_generator
+
+    def batch_to_batches(self, batch_or_batches) -> Generator:
+        # yield the output of the current data processor
+        if isinstance(batch_or_batches, tuple):
+            batch, _ = batch_or_batches
+            yield batch
+        else:
+            # we activley overwrite examples, as it is propagateded as intput to the next processor
+            for batch, _ in batch_or_batches:
+                yield batch
 
     def _batch_process_to_pyarrow(
         self,

@@ -58,7 +58,7 @@ class DataPipeFormatter(object):
                     zip(
                         pipe,
                         pipe.iter_batch_process(
-                            examples=self.sample_ds.to_dict(),
+                            batches=self.sample_ds.to_dict(),
                             index=list(range(len(self.sample_ds))),
                             rank=0,
                         ),

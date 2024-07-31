@@ -225,9 +225,10 @@ class BaseDatasetConsumer(ABC):
             for shard_id in self._yield_shard_ids(shard_queue):
                 shard = data.shard_data_sources(shard_id, data.n_shards)
 
+                example_id = -1
                 last_update_id = -1
                 last_update_time = time()
-
+                
                 for example_id, (_, example) in enumerate(shard):
                     self.consume_example(
                         shard_id=shard_id,
@@ -239,9 +240,9 @@ class BaseDatasetConsumer(ABC):
                         tqdm_writer.send((False, example_id - last_update_id))
                         last_update_id = example_id
                         last_update_time = time()
-
-                # send final update for current shard
-                tqdm_writer.send((True, example_id - last_update_id))
+                if example_id > -1:
+                    # send final update for current shard
+                    tqdm_writer.send((True, example_id - last_update_id))
 
         finally:
             # finalize worker and tell tqdm worker to close the connection
