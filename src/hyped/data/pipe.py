@@ -1,6 +1,6 @@
 import itertools
 import warnings
-from collections import deque
+from collections import defaultdict, deque
 from copy import deepcopy
 from typing import Any, Generator, Iterable, Tuple
 
@@ -125,12 +125,20 @@ class DataPipe(list):
         Returns:
             out (dict[str, list[Any]]): processed examples
         """
+        # get a generator of list of batches; the generator as large as the number of processors we have
         iterable = self.iter_batch_process(
             examples=examples, index=index, rank=rank
         )
-        # return the last item of the iterable which corresponds
-        # to the output of the last data processor
-        return deque(iterable, maxlen=1).pop()
+        # return the last item of the iterable which corresponds to the output of the last data processor
+        last_processor_list_of_batches = deque(iterable, maxlen=1).pop()
+        
+        # as the output of the last data processor is a list of batches, we need to merge them into a single batch again
+        features = last_processor_list_of_batches[0].keys()
+        big_batch = defaultdict(list)
+        for batch in last_processor_list_of_batches:
+            for key in features:
+                big_batch[key].extend(batch[key])
+        return big_batch
 
     def iter_batch_process(
         self,
@@ -151,29 +159,30 @@ class DataPipe(list):
                 "of the pipe is re-prepared with different features."
             )
         # apply each processor
-        examples = [examples]
+        examples_with_index = [(examples, index)]
         for p in self:
             batch_generators = []
-            for batch in examples:
+            for batch, index in examples_with_index:
                 batch_or_batches = p.batch_process(
                     batch, index, rank, return_index=True
                 )
                 batch_generators.append(self.batch_to_batches(batch_or_batches))
 
+            # convert to list of (batches, index) tuples
             batch_generator = list(itertools.chain.from_iterable(batch_generators))
-            yield from batch_generator
+            yield [batch for batch, index in batch_generator]
             # update examples for next processor
-            examples = batch_generator
+            examples_with_index = batch_generator
 
     def batch_to_batches(self, batch_or_batches) -> Generator:
         # yield the output of the current data processor
         if isinstance(batch_or_batches, tuple):
-            batch, _ = batch_or_batches
-            yield batch
+            batch, index = batch_or_batches
+            yield (batch, index)
         else:
             # we activley overwrite examples, as it is propagateded as intput to the next processor
-            for batch, _ in batch_or_batches:
-                yield batch
+            for batch, index in batch_or_batches:
+                yield batch, index
 
     def _batch_process_to_pyarrow(
         self,
