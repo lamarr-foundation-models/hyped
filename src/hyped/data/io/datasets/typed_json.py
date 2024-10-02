@@ -72,6 +72,16 @@ def pydantic_model_from_features(
             )
             # set field
             fields[k] = (list[dtype], pydantic.Field(default_factory=list))
+        
+        elif isinstance(field_type, list) and len(field_type) == 1:
+            # infer dtype for sequence values
+            dtype = (
+                pydantic_model_from_features({"field": field_type[0]})
+                .model_fields["field"]
+                .annotation
+            )
+            # set field
+            fields[k] = (list[dtype], pydantic.Field(default_factory=list))
 
         elif isinstance(field_type, (dict, datasets.Features)):
             model = pydantic_model_from_features(field_type)
